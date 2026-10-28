@@ -1,0 +1,9 @@
+node_modules/
+.next/
+coverage/
+.local/
+.pages-build/
+out/
+*.tsbuildinfo
+.env*
+!.env.example

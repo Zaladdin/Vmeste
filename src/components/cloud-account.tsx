@@ -2,6 +2,7 @@
 import { useEffect, useId, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { CLOUD_CONFIGURED, getCloudClient } from "@/lib/cloud-client";
+import { CopyValue } from "./copy-value";
 
 export function useCloudAccount() {
   const [session, setSession] = useState<Session | null>(null);
@@ -134,6 +135,9 @@ export function CloudAccount({
     return (
       <section className="account-toolbar" aria-label="Ваш аккаунт">
         <span>{account.session?.user.email ?? "Ваш аккаунт"}</span>
+        {account.session ? (
+          <CopyValue label="Мой ID" value={account.session.user.id} />
+        ) : null}
         <button
           className="button secondary"
           disabled={disabled || busy || !account.session}

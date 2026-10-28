@@ -1,0 +1,23 @@
+.identity-code {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 12px;
+  min-width: 0;
+}
+.identity-code > span {
+  color: var(--muted);
+}
+.identity-code code {
+  overflow-wrap: anywhere;
+  user-select: all;
+  font-size: 12px;
+}
+.identity-code small {
+  flex-basis: 100%;
+  color: var(--muted);
+}
+.identity-code button {
+  flex-shrink: 0;
+}

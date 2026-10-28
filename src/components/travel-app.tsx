@@ -40,6 +40,7 @@ import { publicPath } from "@/lib/deployment";
 import { createBackup, restoreBackup } from "@/lib/backup";
 import { AppAccess } from "./app-access";
 import { CloudAccount, useCloudAccount } from "./cloud-account";
+import { RoomsHub } from "./rooms";
 
 type Tab = "plan" | "tickets" | "stays" | "people" | "documents" | "places";
 type Editor =
@@ -84,6 +85,7 @@ function TravelWorkspace() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [roomsOpen, setRoomsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [offlineReady, setOfflineReady] = useState(false);
   const importInput = useRef<HTMLInputElement>(null);
@@ -520,6 +522,15 @@ function TravelWorkspace() {
           </button>
         </div>
         <CloudAccount account={account} disabled={busy} compact />
+        {account.session ? (
+          <RoomsHub
+            key={account.session.user.id}
+            userId={account.session.user.id}
+            trip={trip}
+            open={roomsOpen}
+            onToggle={setRoomsOpen}
+          />
+        ) : null}
         <div className="breadcrumb">
           <span>Мои поездки</span>
           <ChevronRight size={14} />
@@ -788,6 +799,12 @@ function TravelWorkspace() {
                   await refreshDocuments();
                 }}
                 onEditMembers={() => setEditor({ type: "members" })}
+                onOpenRooms={() => {
+                  setRoomsOpen(true);
+                  document
+                    .getElementById("rooms-hub")
+                    ?.scrollIntoView({ behavior: "smooth" });
+                }}
                 onEvent={(item) => setEditor({ type: "event", item })}
                 onDocuments={showDocuments}
               />

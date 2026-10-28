@@ -23,6 +23,7 @@ import {
 import { documentPeople, normalizePersonName } from "@/lib/document-people";
 import "./trip-sections.css";
 import { PeopleDiscovery } from "./people-discovery";
+import { CopyValue } from "./copy-value";
 
 type SectionProps = {
   trip: Trip;
@@ -395,6 +396,7 @@ export function People({
   trip,
   documents,
   onEditMembers,
+  onOpenRooms,
   onEvent,
   onDocuments,
   onPeopleApplied,
@@ -402,6 +404,7 @@ export function People({
   trip: Trip;
   documents: StoredDocument[];
   onEditMembers: () => void;
+  onOpenRooms: () => void;
   onEvent: (event: TripEvent) => void;
   onDocuments: (eventId?: string) => void;
   onPeopleApplied: (trip: Trip) => Promise<void>;
@@ -418,6 +421,12 @@ export function People({
         documents={documents}
         onApplied={onPeopleApplied}
       />
+      <p className="muted">
+        Свяжите людей из поездки с аккаунтами после приглашения в комнату.
+      </p>
+      <button className="button secondary" onClick={onOpenRooms}>
+        Связать с аккаунтами в комнате
+      </button>
       {trip.members.length ? (
         <div className="people-list">
           {trip.members.map((person) => {
@@ -441,6 +450,7 @@ export function People({
             );
             return (
               <article className="person-card" key={person.id}>
+                <CopyValue label="ID участника" value={person.id} />
                 <div className="person-card-header">
                   <span
                     className="person-initials person-initials-large"

@@ -45,6 +45,7 @@ import { Documents } from "./documents";
 import { Tickets, Accommodation, People } from "./trip-sections";
 import { publicPath } from "@/lib/deployment";
 import { createBackup, restoreBackup } from "@/lib/backup";
+import { AppAccess } from "./app-access";
 
 type Tab = "plan" | "tickets" | "stays" | "people" | "documents" | "places";
 type Editor =
@@ -60,6 +61,14 @@ const errorText = (error: unknown) =>
     : "Не удалось сохранить данные. Проверьте доступность хранилища браузера.";
 
 export function TravelApp() {
+  return (
+    <AppAccess>
+      <TravelWorkspace />
+    </AppAccess>
+  );
+}
+
+function TravelWorkspace() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [activeId, setActiveId] = useState("");
   const [tab, setTab] = useState<Tab>("plan");

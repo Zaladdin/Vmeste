@@ -2477,3 +2477,53 @@ select:focus-visible {
     flex-basis: 100%;
   }
 }
+.app-access {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: 28px 16px;
+  background: #edf2f8;
+}
+.app-access-card {
+  width: min(100%, 560px);
+  padding: clamp(22px, 5vw, 40px);
+  background: white;
+  border: 1px solid #dce4ef;
+  border-radius: 22px;
+  box-shadow: 0 18px 65px #17385a12;
+}
+.app-access-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #2457cb;
+  font-weight: 750;
+  font-size: 22px;
+  margin-bottom: 28px;
+}
+.app-access-card h1 {
+  font-size: clamp(25px, 5vw, 34px);
+  line-height: 1.2;
+}
+.app-access-card > p {
+  color: #586879;
+  margin: 16px 0 24px;
+}
+.app-access .cloud-account {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.app-access .cloud-account form {
+  display: grid;
+  gap: 16px;
+}
+.app-access .cloud-account label {
+  width: 100%;
+}
+.app-access .cloud-account input {
+  width: 100%;
+  min-height: 46px;
+  font-size: 16px;
+}

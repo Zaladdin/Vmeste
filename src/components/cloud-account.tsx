@@ -49,9 +49,11 @@ export function useCloudAccount() {
 export function CloudAccount({
   account,
   disabled,
+  purpose = "recognition",
 }: {
   account: ReturnType<typeof useCloudAccount>;
   disabled: boolean;
+  purpose?: "app" | "recognition";
 }) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
@@ -129,19 +131,33 @@ export function CloudAccount({
   if (!account.configured)
     return (
       <p className="muted cloud-setup-note">
-        Облачное распознавание ещё не подключено. Документы и ручной план
-        доступны на этом устройстве.
+        Вход в приложение пока не настроен. Попробуйте позже.
       </p>
     );
   return (
-    <section className="cloud-account" aria-label="Облачное распознавание">
-      <h3>Облачное распознавание</h3>
+    <section
+      className="cloud-account"
+      aria-label={
+        purpose === "app" ? "Вход в приложение" : "Облачное распознавание"
+      }
+    >
+      {purpose === "app" ? (
+        <h2>Вход в приложение</h2>
+      ) : (
+        <h3>Облачное распознавание</h3>
+      )}
       <p id={help}>
-        Войдите в один аккаунт здесь и в обработчике. Загруженный для
-        распознавания документ сохраняется в закрытом облачном хранилище.
-        Обработчик может работать на вашем компьютере или сервере. Пока он
-        недоступен, задание ждёт. Поездки между устройствами пока не
-        синхронизируются.
+        {purpose === "app" ? (
+          "Используйте свою электронную почту и пароль. Поездки и документы сохраняются в браузере этого устройства."
+        ) : (
+          <>
+            Войдите в один аккаунт здесь и в обработчике. Загруженный для
+            распознавания документ сохраняется в закрытом облачном хранилище.
+            Обработчик может работать на вашем компьютере или сервере. Пока он
+            недоступен, задание ждёт. Поездки между устройствами пока не
+            синхронизируются.
+          </>
+        )}
       </p>
       {account.loading ? (
         <p role="status">Проверяем вход…</p>

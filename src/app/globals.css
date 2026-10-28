@@ -1,15 +1,15 @@
 :root {
-  --bg: #fff;
-  --sidebar: #fafbf9;
-  --text: #1b2723;
-  --muted: #727b76;
-  --line: #e5e9e5;
-  --green: #284e3f;
-  --green-hover: #1d3d30;
-  --sage: #eef3ed;
+  --bg: #f5f7fb;
+  --sidebar: #fff;
+  --text: #17263c;
+  --muted: #607088;
+  --line: #dce4f0;
+  --green: #4169e1;
+  --green-hover: #3154c1;
+  --sage: #eaf0ff;
   --danger: #a43a32;
   --radius: 8px;
-  font-family: Arial, "Segoe UI", sans-serif;
+  font-family: "Segoe UI", Arial, sans-serif;
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
@@ -2004,6 +2004,467 @@ p {
 }
 .recognition-queued {
   color: var(--muted, #65776d);
+}
+
+/* Travel journal shell: the same quiet palette across plan, bookings and forms. */
+.sidebar {
+  width: 256px;
+  padding: 30px 18px;
+  border-color: var(--line);
+}
+.sidebar > .brand {
+  padding-left: 10px;
+  margin-bottom: 28px;
+}
+.brand {
+  color: var(--text);
+  letter-spacing: -0.055em;
+}
+.brand-compass {
+  color: var(--green);
+  flex-shrink: 0;
+}
+.primary-nav {
+  gap: 7px;
+  margin-top: 0;
+  margin-bottom: 26px;
+}
+.nav-item {
+  min-height: 49px;
+  border-radius: 11px;
+  font-size: 15px;
+  color: var(--text);
+}
+.nav-item.selected {
+  background: var(--sage);
+  color: var(--green);
+}
+.trip-list-heading {
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.trip-pick {
+  border-radius: 12px;
+}
+.trip-pick.active {
+  background: var(--bg);
+}
+.trip-pick-dot {
+  background: var(--green);
+}
+.new-trip-button {
+  border-radius: 10px;
+  min-height: 44px;
+}
+.sidebar-bottom {
+  font-size: 12px;
+}
+.main {
+  margin-left: 256px;
+  padding: 26px 48px 0;
+  max-width: 1800px;
+}
+.breadcrumb {
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.trip-heading {
+  padding: 7px 0 28px;
+  align-items: center;
+  flex-direction: row;
+  gap: 24px;
+}
+.trip-heading h1 {
+  font-size: clamp(27px, 2.5vw, 36px);
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 1.18;
+}
+.trip-heading-actions {
+  align-self: auto;
+  margin: 0;
+}
+.trip-period {
+  font-size: 15px;
+  margin-top: 12px;
+  color: var(--muted);
+}
+.button {
+  min-height: 44px;
+  padding: 11px 17px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.button.primary {
+  background: var(--green);
+  box-shadow: 0 3px 8px #4169e112;
+}
+.button.secondary {
+  background: #fff;
+  border-color: #cedbf3;
+  color: var(--green);
+}
+.button.secondary:hover {
+  background: #edf3ff;
+}
+.tab-bar {
+  gap: 26px;
+  margin-bottom: 20px;
+  border-color: var(--line);
+  flex-wrap: wrap;
+}
+.tab {
+  min-height: 52px;
+  padding: 12px 2px 17px;
+  font-size: 15px;
+  color: #52617a;
+  white-space: nowrap;
+}
+.tab.active {
+  color: var(--green);
+  border-bottom-color: var(--green);
+}
+.tab-count {
+  font-size: 11px;
+  color: var(--green);
+}
+.plan-layout {
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 24px;
+}
+.plan-main {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 24px;
+}
+.day {
+  background: var(--bg);
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  min-width: 64px;
+}
+.day.selected {
+  background: var(--sage);
+  color: var(--green);
+  border-color: #b8c9ff;
+}
+.day.selected strong {
+  color: var(--green);
+}
+.day-heading {
+  font-size: 23px;
+  margin-top: 28px;
+}
+.trip-summary {
+  padding: 23px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  align-self: start;
+}
+.trip-summary h2 {
+  font-size: 21px;
+  margin-bottom: 10px;
+}
+.summary-row {
+  min-height: 83px;
+  gap: 12px;
+}
+.summary-row strong {
+  font-size: 14px;
+}
+.summary-row small {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.event-icon {
+  border-radius: 12px;
+  color: var(--green);
+  background: var(--sage);
+}
+.event-title {
+  font-size: 15px;
+  line-height: 1.5;
+}
+.event-time {
+  font-size: 15px;
+  color: var(--text);
+}
+.event-time span {
+  font-size: 10px;
+  color: var(--muted);
+}
+.event-details {
+  color: var(--muted);
+  font-size: 13px;
+}
+.local-panel {
+  margin-top: 18px;
+  padding: 15px 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  border-radius: 0;
+}
+.local-panel > svg {
+  display: none;
+}
+.local-panel h3 {
+  font-size: 13px;
+}
+.local-panel p {
+  font-size: 12px;
+  color: var(--muted);
+}
+.sample-note {
+  font-size: 12px;
+}
+.main-footer {
+  margin-top: auto;
+  padding-top: 35px;
+  padding-bottom: 26px;
+  color: var(--muted);
+  font-size: 11px;
+  border-color: var(--line);
+}
+.document-row {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px;
+  margin-bottom: 10px;
+}
+.upload-area {
+  background: #fff;
+  border-radius: 16px;
+}
+.dialog {
+  border-radius: 18px;
+  color: var(--text);
+}
+.editor input,
+.editor select,
+.editor textarea,
+.cloud-account input {
+  border-color: #d5dfed;
+  border-radius: 9px;
+  color: var(--text);
+  background: #fff;
+}
+.editor input:focus,
+.editor select:focus,
+.editor textarea:focus {
+  outline-color: #8ca8ff;
+  border-color: #8ca8ff;
+}
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline-color: #8ca8ff;
+}
+@media (max-width: 1200px) {
+  .sidebar {
+    width: 224px;
+  }
+  .main {
+    margin-left: 224px;
+    padding: 24px 28px 0;
+  }
+  .trip-heading {
+    flex-wrap: wrap;
+    gap: 18px;
+  }
+  .trip-heading-actions {
+    align-self: auto;
+  }
+  .tab-bar {
+    gap: 18px;
+  }
+  .tab {
+    font-size: 14px;
+  }
+  .plan-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .trip-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    padding: 22px;
+  }
+  .trip-summary > h2 {
+    grid-column: 1/-1;
+  }
+  .summary-row {
+    grid-column: auto;
+  }
+  .local-panel {
+    grid-column: 1/-1;
+    grid-row: auto;
+    margin: 0;
+  }
+  .sample-note,
+  .export-link,
+  .export-hint {
+    grid-column: 1/-1;
+  }
+}
+@media (max-width: 720px) {
+  .sidebar {
+    width: 278px;
+  }
+  .main {
+    margin-left: 0;
+    padding: 0 18px;
+  }
+  .mobile-topbar {
+    margin-bottom: 15px;
+    min-height: 68px;
+    border-color: var(--line);
+  }
+  .mobile-topbar .brand {
+    font-size: 23px;
+  }
+  .mobile-topbar .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+  .breadcrumb {
+    font-size: 12px;
+    margin-bottom: 12px;
+  }
+  .trip-heading {
+    padding: 4px 0 22px;
+    gap: 18px;
+  }
+  .trip-heading h1 {
+    font-size: 29px;
+  }
+  .trip-period {
+    font-size: 13px;
+    line-height: 1.6;
+    margin-top: 10px;
+  }
+  .trip-heading-actions {
+    width: 100%;
+  }
+  .trip-heading-actions .button {
+    min-height: 44px;
+    font-size: 13px;
+  }
+  .tab-bar {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+    padding: 5px;
+    background: #eaf0f9;
+    border: 0;
+    border-radius: 13px;
+    margin-bottom: 25px;
+  }
+  .tab {
+    justify-content: center;
+    min-width: 0;
+    min-height: 43px;
+    padding: 10px 3px;
+    font-size: 12px;
+    margin: 0;
+    border: 0;
+    border-radius: 9px;
+  }
+  .tab.active {
+    background: #fff;
+    box-shadow: 0 2px 5px #17263c09;
+  }
+  .plan-main {
+    padding: 17px 14px;
+  }
+  .day {
+    min-width: 48px;
+    height: 56px;
+  }
+  .day-heading {
+    font-size: 21px;
+  }
+  .trip-summary {
+    display: block;
+    padding: 20px;
+  }
+  .summary-row {
+    min-height: 76px;
+  }
+  .event-title {
+    font-size: 14px;
+  }
+  .event-time {
+    font-size: 13px;
+  }
+  .event-row {
+    gap: 6px;
+    grid-template-columns: 39px 8px 31px minmax(0, 1fr);
+  }
+  .event-row .event-icon {
+    width: 31px;
+    height: 34px;
+  }
+  .event-row:not(:last-child):after {
+    left: 49px;
+  }
+  .main-footer {
+    font-size: 10px;
+    padding-top: 26px;
+  }
+}
+@media (min-width: 1300px) {
+  .sidebar {
+    width: 286px;
+  }
+  .main {
+    margin-left: 286px;
+    padding-left: 54px;
+    padding-right: 27px;
+  }
+  .trip-heading h1 {
+    font-size: 40px;
+  }
+  .brand {
+    font-size: 32px;
+  }
+  .nav-item {
+    font-size: 18px;
+  }
+  .tab {
+    font-size: 17px;
+  }
+  .trip-period {
+    font-size: 17px;
+  }
+  .trip-heading-actions .button {
+    min-height: 52px;
+    font-size: 16px;
+  }
+}
+.recognized-people {
+  background: var(--sage);
+  color: var(--text);
+  padding: 13px 15px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+@media (max-width: 720px) {
+  .editor input,
+  .editor textarea,
+  .editor select,
+  .cloud-account input {
+    font-size: 16px;
+  }
 }
 @media (max-width: 640px) {
   .cloud-account {

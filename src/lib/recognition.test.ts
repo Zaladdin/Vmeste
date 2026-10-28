@@ -21,6 +21,154 @@ export const flight: BookingDraft = {
   reviewReason: null,
 };
 describe("recognition import plan", () => {
+  it("adds named document travelers to the trip and the corresponding events", () => {
+    const trip = { ...sampleTrip, members: [], events: [] };
+    const result = buildImportPlan(trip, [
+      { ...flight, details: "J2 077\nУчастники: Anna Ivanova; Максим Петров" },
+      {
+        ...flight,
+        title: "Дальнейший перелёт",
+        details: "Участники: ANNA IVANOVA",
+      },
+    ]);
+    expect(result.needsReview).toBe(false);
+    expect(result.trip.members.map((member) => member.name)).toEqual([
+      "Anna Ivanova",
+      "Максим Петров",
+    ]);
+    expect(result.trip.events[0].memberIds).toEqual(
+      result.trip.members.map((member) => member.id),
+    );
+    expect(result.trip.events[1].memberIds).toEqual([
+      result.trip.members[0].id,
+    ]);
+    expect(trip.members).toEqual([]);
+  });
+  it("unions new traveler links into a duplicate event without overwriting edits or IDs", () => {
+    const trip = {
+      ...sampleTrip,
+      members: [{ id: "anna", name: "Anna Ivanova" }],
+      events: [],
+    };
+    const seed = buildImportPlan(trip, [
+      { ...flight, details: "Участники: ANNA IVANOVA" },
+    ]).trip;
+    const event = {
+      ...seed.events[0],
+      location: "Edited address",
+      details: "User note",
+    };
+    const current = { ...seed, events: [event] };
+    const result = buildImportPlan(current, [
+      { ...flight, details: "Участники: Anna Ivanova; Максим Петров" },
+    ]);
+    expect(result.added).toBe(0);
+    expect(result.trip.members).toHaveLength(2);
+    expect(result.trip.events[0]).toEqual({
+      ...event,
+      memberIds: result.trip.members.map((member) => member.id),
+    });
+    const again = buildImportPlan(result.trip, [
+      { ...flight, details: "Участники: ANNA IVANOVA; МАКСИМ ПЕТРОВ" },
+    ]);
+    expect(again.trip.members).toEqual(result.trip.members);
+    expect(again.trip.events[0]).toEqual(result.trip.events[0]);
+    expect(current.events[0].memberIds).toEqual(["anna"]);
+  });
+  it("does not add people or links until all recognized events can be imported", () => {
+    const trip = { ...sampleTrip, members: [], events: [] };
+    for (const draft of [
+      { ...flight, date: "--05-10" },
+      { ...flight, needsReview: true, reviewReason: "Уточните время" },
+      { ...flight, date: "2027-02-30" },
+    ]) {
+      const result = buildImportPlan(trip, [
+        { ...draft, details: "Участники: Anna Ivanova" },
+      ]);
+      expect(result.needsReview).toBe(true);
+      expect(result.trip).toBe(trip);
+      expect(result.trip.members).toEqual([]);
+    }
+  });
+  it("keeps all named passengers when repeated legs collapse into one event", () => {
+    const trip = { ...sampleTrip, members: [], events: [] };
+    const result = buildImportPlan(trip, [
+      { ...flight, details: "Участники: Anna Ivanova" },
+      { ...flight, details: "Участники: Максим Петров" },
+    ]);
+    expect(result.added).toBe(1);
+    expect(result.duplicates).toBe(1);
+    expect(result.trip.events[0].memberIds).toEqual(
+      result.trip.members.map((member) => member.id),
+    );
+    const fullTrip = {
+      ...result.trip,
+      members: [
+        ...result.trip.members,
+        ...Array.from({ length: 48 }, (_, index) => ({
+          id: `other-${index}`,
+          name: `Other ${index}`,
+        })),
+      ],
+    };
+    expect(
+      buildImportPlan(fullTrip, [
+        { ...flight, details: "Участники: ANNA IVANOVA" },
+      ]).needsReview,
+    ).toBe(false);
+  });
+  it("requests review rather than silently truncating invalid or excess people", () => {
+    const fullTrip = {
+      ...sampleTrip,
+      events: [],
+      members: Array.from({ length: 50 }, (_, index) => ({
+        id: `person-${index}`,
+        name: `Existing ${index}`,
+      })),
+    };
+    const excess = buildImportPlan(fullTrip, [
+      { ...flight, details: "Участники: New Traveler" },
+    ]);
+    expect(excess.needsReview).toBe(true);
+    expect(excess.trip).toBe(fullTrip);
+    const invalid = buildImportPlan(sampleTrip, [
+      { ...flight, details: `Участники: ${"A".repeat(61)}` },
+    ]);
+    expect(invalid.needsReview).toBe(true);
+    expect(invalid.reasons.join(" ")).toMatch(/имена/);
+  });
+  it("preserves a known day/month but requires a confirmed year before import", () => {
+    const draft = {
+      ...flight,
+      date: "--05-10",
+      endDate: "--05-10",
+      needsReview: true,
+    };
+    const parsed = recognitionResultSchema.parse({
+      events: [draft],
+      warnings: [],
+    });
+    expect(parsed.events[0].date).toBe("--05-10");
+    const trip = { ...sampleTrip, events: [] };
+    expect(
+      buildImportPlan(trip, parsed.events, { reviewed: true }).needsReview,
+    ).toBe(true);
+    expect(buildImportPlan(trip, parsed.events, { reviewed: true }).added).toBe(
+      0,
+    );
+    expect(
+      buildImportPlan(trip, parsed.events, { reviewed: true }).reasons.join(
+        " ",
+      ),
+    ).toMatch(/год/);
+    expect(
+      buildImportPlan(
+        trip,
+        [{ ...draft, date: "2027-05-10", endDate: "2027-05-10" }],
+        { reviewed: true },
+      ).added,
+    ).toBe(1);
+  });
   it("creates every leg and a stay with their real timezones", () => {
     const trip = { ...sampleTrip, events: [] };
     const hotel: BookingDraft = {

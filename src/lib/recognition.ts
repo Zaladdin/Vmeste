@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { instantOf, parseTrip, type Trip, type TripEvent } from "./model";
+import { parsePartialDate } from "./review-date";
+import {
+  documentPeople,
+  documentPeopleError,
+  normalizePersonName,
+} from "./document-people";
 
 const nullableText = (max: number) => z.string().max(max).nullable();
 export const bookingDraftSchema = z
@@ -93,8 +99,17 @@ export function buildImportPlan(
       continue;
     }
     const draft = result.data;
+    const peopleError = documentPeopleError(draft.details);
+    if (peopleError) {
+      reasons.push(peopleError);
+      continue;
+    }
     if (draft.needsReview && !options.reviewed)
       reasons.push(draft.reviewReason || `Проверьте событие «${draft.title}»`);
+    if (parsePartialDate(draft.date) || parsePartialDate(draft.endDate)) {
+      reasons.push(`Уточните год в датах бронирования: ${draft.title}`);
+      continue;
+    }
     if (!draft.date || !draft.time || !draft.timeZone) {
       reasons.push(`Уточните дату, время и часовой пояс: ${draft.title}`);
       continue;
@@ -154,13 +169,38 @@ export function buildImportPlan(
       trip.events.map((event) => [identity(event), event.id]),
     );
     const events = [...trip.events];
+    const members = [...trip.members];
+    const knownMembers = new Map(
+      members.map((member) => [normalizePersonName(member.name), member.id]),
+    );
     const eventIds = new Set<string>();
     let added = 0,
       duplicates = 0;
     for (const candidate of candidates) {
+      for (const name of documentPeople(candidate.details)) {
+        const normalized = normalizePersonName(name);
+        let memberId = knownMembers.get(normalized);
+        if (!memberId) {
+          if (members.length >= 50)
+            throw new Error(
+              "В одной поездке можно сохранить до 50 участников. Проверьте имена из документов.",
+            );
+          memberId = crypto.randomUUID();
+          knownMembers.set(normalized, memberId);
+          members.push({ id: memberId, name });
+        }
+        candidate.memberIds.push(memberId);
+      }
       const key = identity(candidate);
       const match = known.get(key);
       if (match) {
+        const index = events.findIndex((event) => event.id === match);
+        const current = events[index];
+        const memberIds = [
+          ...new Set([...current.memberIds, ...candidate.memberIds]),
+        ];
+        if (memberIds.length !== current.memberIds.length)
+          events[index] = { ...current, memberIds };
         eventIds.add(match);
         duplicates++;
       } else {
@@ -171,7 +211,7 @@ export function buildImportPlan(
       }
     }
     return {
-      trip: parseTrip({ ...trip, startDate, endDate, events }),
+      trip: parseTrip({ ...trip, startDate, endDate, events, members }),
       eventIds: [...eventIds],
       added,
       duplicates,

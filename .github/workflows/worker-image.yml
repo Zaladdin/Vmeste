@@ -1,0 +1,56 @@
+name: Check private Codex worker image
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: worker-image-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Linux image without credentials
+        run: docker build -t vmeste-worker:ci .
+      - name: Check CLI and loopback API without model calls
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none vmeste-worker:ci codex --version
+          docker run -d --name vmeste-api-check --network none vmeste-worker:ci node node_modules/next/dist/bin/next start --hostname 127.0.0.1
+          for attempt in {1..30}; do
+            if docker exec vmeste-api-check node -e "fetch('http://127.0.0.1:3000/api/recognize').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then break; fi
+            sleep 1
+          done
+          docker exec vmeste-api-check node -e "(async()=>{const assert=require('node:assert/strict'); const fs=require('node:fs'); const r=await fetch('http://127.0.0.1:3000/api/recognize/budget'); assert.equal(r.status,200); const b=await r.json(); assert.equal(b.limit,0); assert.equal(b.used,0); for(const p of ['/app/.env.local','/app/docs','/home/node/.codex/auth.json'])assert.equal(fs.existsSync(p),false); assert.notEqual(process.getuid(),0); console.log('Private API, paused budget and credential exclusion verified');})().catch(e=>{console.error(e);process.exit(1)})"
+          if docker run --rm --network none vmeste-worker:ci codex --ignore-user-config login status; then
+            echo 'Unexpected Codex authorization in build image'
+            exit 1
+          fi
+      - name: Verify shared-volume lease and preserve daily usage
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker volume create vmeste-budget-check
+          docker run -d --name vmeste-lease-check --network none --mount source=vmeste-budget-check,target=/app/.local vmeste-worker:ci /usr/bin/flock --nonblock --no-fork /app/.local/remote-runtime.lock sleep 120
+          sleep 1
+          budget="{\"version\":1,\"day\":\"$(date -u +%F)\",\"limit\":10,\"used\":10}"
+          if printf '%s' "$budget" | docker run --rm -i --network none --mount source=vmeste-budget-check,target=/app/.local vmeste-worker:ci node scripts/run-remote-worker.mjs --restore-budget; then
+            echo 'Restore incorrectly bypassed an active kernel lease'
+            exit 1
+          fi
+          docker stop vmeste-lease-check
+          printf '%s' "$budget" | docker run --rm -i --network none --mount source=vmeste-budget-check,target=/app/.local vmeste-worker:ci node scripts/run-remote-worker.mjs --restore-budget
+          reduced="{\"version\":1,\"day\":\"$(date -u +%F)\",\"limit\":10,\"used\":1}"
+          if printf '%s' "$reduced" | docker run --rm -i --network none --mount source=vmeste-budget-check,target=/app/.local vmeste-worker:ci node scripts/run-remote-worker.mjs --restore-budget; then
+            echo 'Restore incorrectly decreased daily usage'
+            exit 1
+          fi
+          docker run --rm --network none --mount source=vmeste-budget-check,target=/app/.local vmeste-worker:ci node -e "const assert=require('node:assert/strict'); const b=JSON.parse(require('node:fs').readFileSync('/app/.local/recognition-budget.json','utf8')); assert.equal(b.used,10); assert.equal(b.limit,10); console.log('Kernel lease and monotonic restore verified');"
+      - name: Clean isolated test containers
+        if: always()
+        run: |
+          docker rm -f vmeste-api-check vmeste-lease-check || true
+          docker volume rm vmeste-budget-check || true

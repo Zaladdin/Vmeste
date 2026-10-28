@@ -1,0 +1,38 @@
+services:
+  worker:
+    build:
+      context: .
+      args:
+        CODEX_VERSION: "0.165.0"
+    image: vmeste-worker:${VMESTE_IMAGE_TAG:-local}
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 55s
+    env_file:
+      - .env.server
+    environment:
+      VMESTE_RECOGNITION_PROVIDER: codex
+      VMESTE_DAILY_RECOGNITION_LIMIT: "0"
+      CODEX_HOME: /home/node/.codex
+    volumes:
+      - recognition-state:/app/.local
+      - codex-login:/home/node/.codex
+      - supabase-login:/home/node/.local/state/vmeste
+    # No ports: internet-facing pages communicate via authenticated Supabase jobs.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  recognition-state:
+  codex-login:
+  supabase-login:

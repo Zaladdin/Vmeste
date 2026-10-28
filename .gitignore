@@ -4,6 +4,9 @@ coverage/
 .local/
 .pages-build/
 out/
+public/pdf.worker-6.4.299.min.mjs
 *.tsbuildinfo
 .env*
 !.env.example
+!.env.server.example
+docs/*.pdf

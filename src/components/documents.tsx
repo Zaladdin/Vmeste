@@ -37,11 +37,13 @@ import { RecognitionReview } from "./recognition-review";
 import { RecognitionBudget, useRecognitionBudget } from "./recognition-budget";
 import { STATIC_HOSTING } from "@/lib/deployment";
 import { CloudAccount, useCloudAccount } from "./cloud-account";
+import { CloudWorkerStatus } from "./cloud-worker-status";
 import {
   CLOUD_CONFIGURED,
   enqueueCloudDocument,
   readCloudJobs,
   cloudFailureMessage,
+  stopCloudJob,
 } from "@/lib/cloud-client";
 function cloudPending(document: StoredDocument) {
   return Boolean(
@@ -311,7 +313,7 @@ export function Documents({
           cloudUserId,
         );
         setNotice(
-          "Документ в очереди. Когда компьютер обработает его, события появятся в плане.",
+          "Документ в очереди. После обработки события появятся в плане.",
         );
       } catch {
         await updateCloudRecognition(
@@ -383,9 +385,7 @@ export function Documents({
         recognition.cloudJobId,
         cloudUserId,
       );
-      setNotice(
-        "Отправка подтверждена. Документ ожидает обработки на компьютере.",
-      );
+      setNotice("Отправка подтверждена. Документ ожидает распознавания.");
       await onRefresh();
     } catch {
       setError(
@@ -410,6 +410,50 @@ export function Documents({
       operation.current = false;
       setBusy(false);
       setPhase("");
+    }
+  }
+  async function stopQueued(doc: StoredDocument) {
+    const recognition = doc.recognition;
+    if (
+      operation.current ||
+      !cloudUserId ||
+      !recognition?.cloudJobId ||
+      !recognition.attemptId
+    )
+      return;
+    const processing = recognition.status === "processing";
+    if (
+      processing &&
+      !window.confirm(
+        "Прервать зависшее задание? Доступно через 15 минут после начала. Результат неизвестен. Повторное распознавание потребует отдельного действия и может снова расходовать лимит.",
+      )
+    )
+      return;
+    operation.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const job = await stopCloudJob(
+        recognition.cloudJobId,
+        cloudUserId,
+        processing,
+      );
+      await updateCloudRecognition(
+        doc.id,
+        recognition.attemptId,
+        job.id,
+        "failed",
+        cloudFailureMessage(job.error),
+      );
+      await onRefresh();
+      setNotice(
+        "Задание остановлено. Повторное распознавание автоматически не запускается.",
+      );
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      operation.current = false;
+      setBusy(false);
     }
   }
   async function confirmRecognition(
@@ -486,6 +530,9 @@ export function Documents({
         </div>
       </div>
       <CloudAccount account={cloud} disabled={busy} />
+      {cloudUserId ? (
+        <CloudWorkerStatus key={cloudUserId} userId={cloudUserId} />
+      ) : null}
       {STATIC_HOSTING ? (
         <p className="recognition-notice">
           План и документы хранятся в браузере этого устройства. Добавляйте
@@ -553,7 +600,7 @@ export function Documents({
         />
         <small>
           {cloudEnabled
-            ? "При автоматическом распознавании копия файла передаётся в закрытое облачное хранилище. Обработчик на компьютере использует лимиты и кредиты Codex. План остаётся на этом устройстве."
+            ? "При автоматическом распознавании копия файла передаётся в закрытое облачное хранилище. Обработчик использует лимиты и кредиты Codex. План остаётся на этом устройстве."
             : STATIC_HOSTING
               ? "Файл сохраняется только в этом браузере. Синхронизации с другими устройствами пока нет."
               : provider === "codex"
@@ -641,6 +688,18 @@ export function Documents({
                 ) : null}
               </div>
               <div className="document-recognition-actions">
+                {cloudPending(doc) &&
+                doc.recognition?.cloudUserId === cloudUserId ? (
+                  <button
+                    className="button secondary"
+                    disabled={busy}
+                    onClick={() => void stopQueued(doc)}
+                  >
+                    {doc.recognition?.status === "queued"
+                      ? "Отменить задание"
+                      : "Восстановить зависшее"}
+                  </button>
+                ) : null}
                 {doc.recognition?.status === "needs_review" &&
                 doc.recognition.result ? (
                   <button

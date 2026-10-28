@@ -1,6 +1,6 @@
 import { createWorkerStorage } from "./cloud-worker-storage.mjs";
 import { createClient } from "@supabase/supabase-js";
-import { mkdir, open, rm } from "node:fs/promises";
+import { acquireWorkerLock, inspectWorkerLock } from "./cloud-worker-lock.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
@@ -11,8 +11,6 @@ import {
 } from "./cloud-worker-core.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const privateDirectory = path.join(root, ".local");
-const lockFile = path.join(privateDirectory, "cloud-worker.lock");
 const stop = new AbortController();
 process.on("SIGINT", () => stop.abort());
 process.on("SIGTERM", () => stop.abort());
@@ -51,6 +49,17 @@ async function passwordPrompt() {
   });
 }
 async function main() {
+  if (process.argv.includes("--status")) {
+    const status = await inspectWorkerLock(root);
+    console.log(
+      status === "busy"
+        ? "Порт блокировки занят обработчиком или другим приложением. Это не проверка готовности Codex."
+        : status === "legacy"
+          ? "Обработчик новой версии не запущен. Есть блокировка старой версии; см. docs/cloud-setup.md."
+          : "Порт блокировки свободен. Обработчик не подтверждён как запущенный; очередь и Codex не проверялись.",
+    );
+    return;
+  }
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL,
     key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!url || !key)
@@ -76,15 +85,9 @@ async function main() {
     }
   }
   const origin = localServerOrigin(process.env.VMESTE_LOCAL_SERVER_URL);
-  await mkdir(privateDirectory, { recursive: true });
-  let lock;
-  try {
-    lock = await open(lockFile, "wx", 0o600);
-  } catch {
-    throw new Error(
-      "Обработчик уже запущен или осталась блокировка после сбоя. См. docs/cloud-setup.md.",
-    );
-  }
+  const lock = await acquireWorkerLock(root, {
+    recoverLegacy: process.argv.includes("--recover-lock"),
+  });
   let client;
   try {
     client = createClient(url, key, {
@@ -134,8 +137,11 @@ async function main() {
     console.log(
       "Обработчик запущен. Только задания вошедшего пользователя; остановка Ctrl+C.",
     );
+    let lastHeartbeat = 0;
     do {
       let ready = false;
+      let allowance = null;
+      let serverAvailable = false;
       try {
         const [provider, budget] = await Promise.all([
           fetch(`${origin}/api/recognize`, {
@@ -146,8 +152,9 @@ async function main() {
           }),
         ]);
         const configuration = provider.ok ? await provider.json() : null;
-        const allowance = budget.ok ? await budget.json() : null;
+        allowance = budget.ok ? await budget.json() : null;
         if (configuration?.provider !== "codex") throw new Error();
+        serverAvailable = true;
         ready =
           Number.isInteger(allowance?.remaining) && allowance.remaining > 0;
       } catch {
@@ -156,6 +163,27 @@ async function main() {
             "Ожидаем локальный сервер Codex. Запустите npm run build и npm start.",
           );
         previous = "server";
+      }
+      if (Date.now() - lastHeartbeat >= 30_000) {
+        // Best effort; missing telemetry migration never blocks existing queue work.
+        try {
+          await client.rpc("report_worker_status", {
+            p_state: ready
+              ? "available"
+              : serverAvailable
+                ? "paused"
+                : "server_unavailable",
+            p_remaining: Number.isInteger(allowance?.remaining)
+              ? allowance.remaining
+              : null,
+            p_limit: Number.isInteger(allowance?.limit)
+              ? allowance.limit
+              : null,
+          });
+        } catch {
+          /* Phone reports unknown/stale rather than inventing availability. */
+        }
+        lastHeartbeat = Date.now();
       }
       if (ready) {
         const status = await processNextCloudJob(client, userId, {
@@ -183,8 +211,7 @@ async function main() {
     try {
       await storage.flush();
     } finally {
-      await lock.close();
-      await rm(lockFile, { force: true });
+      await lock.release();
     }
   }
 }

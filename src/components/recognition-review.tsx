@@ -7,6 +7,57 @@ import {
   type RecognitionResult,
 } from "@/lib/recognition";
 import { eventKinds } from "@/lib/model";
+import { completeReviewDate, parsePartialDate } from "@/lib/review-date";
+import { documentPeople } from "@/lib/document-people";
+
+function ReviewDate({
+  value,
+  required,
+  onChange,
+}: {
+  value: string | null;
+  required: boolean;
+  onChange: (value: string) => void;
+}) {
+  const [originalValue] = useState(value);
+  const [partial] = useState(() => parsePartialDate(value));
+  const [text, setText] = useState(partial ?? "");
+  if (partial)
+    return (
+      <>
+        <span className="muted">
+          В документе: {partial.slice(0, -1)} — уточните год
+        </span>
+        <input
+          type="text"
+          inputMode="numeric"
+          required={required}
+          pattern="[0-9]{2}\.[0-9]{2}\.[0-9]{4}"
+          maxLength={10}
+          placeholder="ДД.ММ.ГГГГ"
+          title="Введите полную дату: ДД.ММ.ГГГГ"
+          value={text}
+          onChange={(e) => {
+            const next = e.target.value;
+            setText(next);
+            const fullDate = completeReviewDate(next);
+            e.currentTarget.setCustomValidity(
+              fullDate ? "" : "Укажите существующую дату в формате ДД.ММ.ГГГГ",
+            );
+            onChange(fullDate ?? originalValue ?? "");
+          }}
+        />
+      </>
+    );
+  return (
+    <input
+      type="date"
+      required={required}
+      value={value ?? ""}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
 
 export function RecognitionReview({
   result,
@@ -20,6 +71,9 @@ export function RecognitionReview({
   onClose: () => void;
 }) {
   const [drafts, setDrafts] = useState(result.events);
+  const [rowIds, setRowIds] = useState(() =>
+    result.events.map(() => crypto.randomUUID()),
+  );
   const [expandDates, setExpandDates] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -78,12 +132,18 @@ export function RecognitionReview({
         ) : null}
         <div className="recognition-drafts">
           {drafts.map((draft, index) => (
-            <fieldset className="recognition-draft" key={index}>
+            <fieldset className="recognition-draft" key={rowIds[index]}>
               <legend>
                 {index + 1}. {eventKinds[draft.kind]}
               </legend>
               {draft.reviewReason ? (
                 <p className="muted">{draft.reviewReason}</p>
+              ) : null}
+              {documentPeople(draft.details).length ? (
+                <p className="recognized-people">
+                  <strong>Пассажиры / гости:</strong>{" "}
+                  {documentPeople(draft.details).join(" · ")}
+                </p>
               ) : null}
               <Field label="Название">
                 <input
@@ -95,11 +155,10 @@ export function RecognitionReview({
               </Field>
               <div className="form-grid">
                 <Field label="Дата начала">
-                  <input
-                    type="date"
+                  <ReviewDate
                     required
-                    value={draft.date ?? ""}
-                    onChange={(e) => update(index, "date", e.target.value)}
+                    value={draft.date}
+                    onChange={(value) => update(index, "date", value)}
                   />
                 </Field>
                 <Field label="Время начала">
@@ -130,11 +189,10 @@ export function RecognitionReview({
                       : "Дата окончания / прилёта"
                   }
                 >
-                  <input
-                    type="date"
+                  <ReviewDate
                     required={draft.kind !== "transport" || !!draft.endTime}
-                    value={draft.endDate ?? ""}
-                    onChange={(e) => update(index, "endDate", e.target.value)}
+                    value={draft.endDate}
+                    onChange={(value) => update(index, "endDate", value)}
                   />
                 </Field>
                 <Field
@@ -197,9 +255,10 @@ export function RecognitionReview({
               <button
                 type="button"
                 className="text-button danger-text"
-                onClick={() =>
-                  setDrafts((current) => current.filter((_, i) => i !== index))
-                }
+                onClick={() => {
+                  setDrafts((current) => current.filter((_, i) => i !== index));
+                  setRowIds((current) => current.filter((_, i) => i !== index));
+                }}
                 disabled={busy}
               >
                 Исключить это событие

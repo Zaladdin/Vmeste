@@ -1,0 +1,24 @@
+# Deny everything first: personal documents and authentication never enter build context.
+**
+!package.json
+!package-lock.json
+!next.config.ts
+!tsconfig.json
+!next-env.d.ts
+!src/
+!src/**
+src/**/*.test.*
+!public/
+!public/icon.svg
+!public/manifest.webmanifest
+!public/sw.js
+!public/istanbul.png
+!scripts/
+!scripts/prepare-pdf-worker.mjs
+!scripts/cloud-worker.mjs
+!scripts/cloud-worker-core.mjs
+!scripts/cloud-worker-storage.mjs
+!scripts/cloud-worker-lock.mjs
+!scripts/run-remote-worker.mjs
+!deploy/
+!deploy/codex.config.toml

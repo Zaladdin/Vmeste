@@ -14,11 +14,10 @@ import {
   Check,
   Menu,
   X,
-  Leaf,
-  MapPin,
   BedDouble,
   Plane,
   CircleHelp,
+  Compass,
 } from "lucide-react";
 import {
   daysOfTrip,
@@ -33,6 +32,7 @@ import {
 } from "@/lib/model";
 import {
   initializeTrips,
+  loadTrips,
   saveTrip,
   removeTrip,
   listDocuments,
@@ -42,12 +42,14 @@ import { TripEditor, EventEditor, MembersEditor } from "./editors";
 import { Dialog } from "./dialog";
 import { Timeline, Places } from "./timeline";
 import { Documents } from "./documents";
+import { Tickets, Accommodation, People } from "./trip-sections";
 import { publicPath } from "@/lib/deployment";
+import { createBackup, restoreBackup } from "@/lib/backup";
 
-type Tab = "plan" | "documents" | "places";
+type Tab = "plan" | "tickets" | "stays" | "people" | "documents" | "places";
 type Editor =
   | { type: "trip"; item?: Trip }
-  | { type: "event"; item?: TripEvent }
+  | { type: "event"; item?: TripEvent; kind?: TripEvent["kind"] }
   | { type: "members" }
   | { type: "delete" }
   | { type: "about" }
@@ -72,6 +74,7 @@ export function TravelApp() {
   const [busy, setBusy] = useState(false);
   const [offlineReady, setOfflineReady] = useState(false);
   const importInput = useRef<HTMLInputElement>(null);
+  const backupInput = useRef<HTMLInputElement>(null);
   const mutation = useRef(false);
   const activeIdRef = useRef("");
   const recognitionCount = useRef(0);
@@ -304,6 +307,43 @@ export function TravelApp() {
       if (importInput.current) importInput.current.value = "";
     }
   }
+  async function downloadBackup() {
+    if (!trip || mutation.current) return;
+    mutation.current = true;
+    setBusy(true);
+    try {
+      const blob = await createBackup(trip.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `vmeste-backup-${trip.startDate}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setToast("Резервная копия с оригиналами документов сохранена.");
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      mutation.current = false;
+      setBusy(false);
+    }
+  }
+  async function uploadBackup(file?: File) {
+    if (!file || mutation.current) return;
+    mutation.current = true;
+    setBusy(true);
+    try {
+      const restored = await restoreBackup(file);
+      setTrips((current) => [...current, restored]);
+      selectTrip(restored);
+      setToast("Поездка и документы восстановлены отдельной копией.");
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      mutation.current = false;
+      setBusy(false);
+      if (backupInput.current) backupInput.current.value = "";
+    }
+  }
   async function deleteTrip() {
     if (!trip) return;
     setBusy(true);
@@ -342,7 +382,7 @@ export function TravelApp() {
           className="brand"
           aria-label="Вместе — главная"
         >
-          <span className="brand-mark" aria-hidden="true" />
+          <Compass className="brand-compass" size={30} aria-hidden="true" />
           вместе
         </a>
         <button
@@ -354,23 +394,27 @@ export function TravelApp() {
           <X size={20} />
         </button>
         <nav className="primary-nav" aria-label="Главная навигация">
-          <button
-            className={tab !== "documents" ? "nav-item selected" : "nav-item"}
-            onClick={() => {
-              setTab("plan");
-              setMenuOpen(false);
-            }}
-          >
-            <Luggage size={21} />
-            Мои поездки
-          </button>
-          <button
-            className={tab === "documents" ? "nav-item selected" : "nav-item"}
-            onClick={() => showDocuments()}
-          >
-            <FileText size={21} />
-            Документы
-          </button>
+          {[
+            { id: "plan", label: "Мои поездки", Icon: Luggage },
+            { id: "tickets", label: "Билеты", Icon: Plane },
+            { id: "stays", label: "Проживание", Icon: BedDouble },
+            { id: "people", label: "Люди", Icon: Users },
+            { id: "documents", label: "Документы", Icon: FileText },
+          ].map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              className={tab === id ? "nav-item selected" : "nav-item"}
+              aria-current={tab === id ? "page" : undefined}
+              onClick={() => {
+                if (id === "documents") showDocuments();
+                else setTab(id as Tab);
+                setMenuOpen(false);
+              }}
+            >
+              <Icon size={21} />
+              {label}
+            </button>
+          ))}
         </nav>
         <div className="trip-list-heading">
           <span>Ваши поездки</span>
@@ -451,7 +495,7 @@ export function TravelApp() {
             <Menu size={22} />
           </button>
           <span className="brand">
-            <span className="brand-mark" aria-hidden="true" />
+            <Compass className="brand-compass" size={26} aria-hidden="true" />
             вместе
           </span>
           <button
@@ -493,6 +537,15 @@ export function TravelApp() {
                   <Upload size={16} />
                   Импорт плана JSON
                 </button>
+                <button disabled={busy} onClick={() => void downloadBackup()}>
+                  <Download size={16} /> Резервная копия с документами
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={() => backupInput.current?.click()}
+                >
+                  <Upload size={16} /> Восстановить копию с документами
+                </button>
                 <button
                   className="danger-text"
                   onClick={() => setEditor({ type: "delete" })}
@@ -510,6 +563,13 @@ export function TravelApp() {
           accept=".json,application/json"
           hidden
           onChange={(e) => void uploadPlan(e.target.files?.[0])}
+        />
+        <input
+          ref={backupInput}
+          type="file"
+          accept=".json,application/json"
+          hidden
+          onChange={(e) => void uploadBackup(e.target.files?.[0])}
         />
         {error ? (
           <div className="global-error" role="alert">
@@ -530,25 +590,6 @@ export function TravelApp() {
           </div>
         ) : trip ? (
           <>
-            <div
-              className={`trip-cover ${trip.destination.toLowerCase().includes("стамбул") ? "" : "trip-cover-simple"}`}
-            >
-              {trip.destination.toLowerCase().includes("стамбул") ? (
-                <img
-                  src={publicPath("/istanbul.png")}
-                  alt="Панорама Стамбула с Босфора"
-                  width={1536}
-                  height={1024}
-                  fetchPriority="high"
-                />
-              ) : (
-                <>
-                  <Luggage size={42} strokeWidth={1} />
-                  <span>{trip.destination}</span>
-                  <Leaf size={110} strokeWidth={0.7} className="cover-leaf" />
-                </>
-              )}
-            </div>
             <header className="trip-heading">
               <div>
                 <h1>{trip.title}</h1>
@@ -570,16 +611,6 @@ export function TravelApp() {
               </div>
               <div className="trip-heading-actions">
                 <button
-                  className="button secondary members-button"
-                  onClick={() => setEditor({ type: "members" })}
-                >
-                  <Users size={19} />
-                  <span>Участники</span>
-                  {trip.members.length ? (
-                    <span className="member-count">{trip.members.length}</span>
-                  ) : null}
-                </button>
-                <button
                   className="button primary"
                   onClick={() => setEditor({ type: "event" })}
                   disabled={busy}
@@ -593,6 +624,9 @@ export function TravelApp() {
               {(
                 [
                   { id: "plan", label: "План поездки" },
+                  { id: "tickets", label: "Билеты" },
+                  { id: "stays", label: "Проживание" },
+                  { id: "people", label: "Люди" },
                   { id: "documents", label: "Документы" },
                   { id: "places", label: "Места" },
                 ] as const
@@ -644,34 +678,29 @@ export function TravelApp() {
                   <h2>Всё под рукой</h2>
                   {[
                     {
-                      kind: "flight",
-                      title: "Перелёт",
+                      kind: "tickets",
+                      title: "Билеты",
                       description: "Билеты и детали перелёта",
                       Icon: Plane,
                     },
                     {
-                      kind: "stay",
+                      kind: "stays",
                       title: "Проживание",
                       description: "Отель, адрес и бронирование",
                       Icon: BedDouble,
                     },
                     {
-                      kind: "activity",
-                      title: "Места",
-                      description: "Интересные локации и заметки",
-                      Icon: MapPin,
+                      kind: "people",
+                      title: "Люди",
+                      description: "Пассажиры и гости поездки",
+                      Icon: Users,
                     },
                   ].map(({ kind, title, description, Icon }) => (
                     <button
                       className="summary-row"
                       key={kind}
                       onClick={() => {
-                        const item = trip.events.find((e) => e.kind === kind);
-                        if (kind === "activity") setTab("places");
-                        else if (item) {
-                          setDate(item.date);
-                          setEditor({ type: "event", item });
-                        } else setEditor({ type: "event" });
+                        setTab(kind as Tab);
                       }}
                     >
                       <span className="event-icon">
@@ -720,6 +749,34 @@ export function TravelApp() {
                   </p>
                 </aside>
               </div>
+            ) : tab === "tickets" ? (
+              <Tickets
+                trip={trip}
+                documents={documents}
+                onEdit={(item) => setEditor({ type: "event", item })}
+                onAdd={() => setEditor({ type: "event", kind: "flight" })}
+                onDocuments={showDocuments}
+              />
+            ) : tab === "stays" ? (
+              <Accommodation
+                trip={trip}
+                documents={documents}
+                onEdit={(item) => setEditor({ type: "event", item })}
+                onAdd={() => setEditor({ type: "event", kind: "stay" })}
+                onDocuments={showDocuments}
+              />
+            ) : tab === "people" ? (
+              <People
+                trip={trip}
+                documents={documents}
+                onPeopleApplied={async () => {
+                  setTrips(await loadTrips());
+                  await refreshDocuments();
+                }}
+                onEditMembers={() => setEditor({ type: "members" })}
+                onEvent={(item) => setEditor({ type: "event", item })}
+                onDocuments={showDocuments}
+              />
             ) : tab === "documents" ? (
               <Documents
                 key={`${trip.id}-${docEvent ?? "all"}`}
@@ -772,14 +829,18 @@ export function TravelApp() {
               <Upload size={16} />
               Импортировать сохранённый план
             </button>
+            <button
+              className="text-button"
+              disabled={busy}
+              onClick={() => backupInput.current?.click()}
+            >
+              <Upload size={16} /> Восстановить копию с документами
+            </button>
           </div>
         )}
         <footer className="main-footer">
-          <span>Меньше суеты. Больше путешествий вместе.</span>
-          <span>
-            Сделано для ваших историй
-            <Leaf size={13} />
-          </span>
+          <span>Билеты и брони хранятся на этом устройстве.</span>
+          <span>{offlineReady ? "Доступно без интернета" : "вместе"}</span>
         </footer>
       </main>
       {toast ? (
@@ -813,6 +874,7 @@ export function TravelApp() {
           trip={trip}
           date={selectedDate}
           item={editor.item}
+          initialKind={editor.kind}
           onSave={saveEvent}
           onDelete={deleteEvent}
           onClose={() => setEditor(null)}
@@ -855,8 +917,9 @@ export function TravelApp() {
             </p>
             <p>
               Данные хранятся только в этом браузере. Очистка данных сайта
-              удалит их. Экспортируйте план и сохраняйте оригиналы документов
-              отдельно: JSON-экспорт не содержит файлы.
+              удалит их. Сохраните резервную копию с документами через меню
+              поездки. Обычный JSON-экспорт содержит только план. Копия содержит
+              личные документы: храните её в надёжном месте.
             </p>
             <p>
               Имена участников помогают распределять события. Приглашения и

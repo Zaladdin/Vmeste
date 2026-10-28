@@ -51,7 +51,39 @@ export const cloudJobSchema = z.object({
   error: z.string().max(500).nullable(),
 });
 export type CloudJob = z.infer<typeof cloudJobSchema>;
+export const workerStatusSchema = z.object({
+  user_id: z.uuid(),
+  state: z.enum(["available", "paused", "server_unavailable"]),
+  remaining: z.number().int().min(0).max(100).nullable(),
+  daily_limit: z.number().int().min(0).max(100).nullable(),
+  observed_at: z.iso.datetime({ offset: true }),
+});
+export type WorkerStatus = z.infer<typeof workerStatusSchema>;
+export function workerIsFresh(status: WorkerStatus, now = Date.now()) {
+  const age = now - Date.parse(status.observed_at);
+  return age >= -30_000 && age <= 90_000;
+}
+export async function readWorkerStatus(
+  userId: string,
+): Promise<WorkerStatus | null> {
+  const sdk = await account(userId);
+  const { data, error } = await sdk
+    .from("worker_status")
+    .select("user_id,state,remaining,daily_limit,observed_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error)
+    throw new Error(
+      "Не удалось получить статус обработчика. Проверьте его подключение и настройку.",
+    );
+  if (data === null) return null;
+  const parsed = workerStatusSchema.safeParse(data);
+  if (!parsed.success || parsed.data.user_id !== userId) throw unavailable();
+  return parsed.data;
+}
 const safeFailureMessages = new Set([
+  "Задание отменено до начала обработки.",
+  "Обработка прервана вручную. Результат неизвестен; повтор может снова расходовать лимит.",
   "Дневной лимит распознавания исчерпан. Повторите позже.",
   "Не удалось прочитать документ. Загрузите оригинал PDF или изображения.",
   "Локальный обработчик недоступен. Проверьте его на компьютере.",
@@ -96,6 +128,35 @@ export async function readCloudJob(
   )
     throw new Error("Не удалось проверить ответ облачной очереди.");
   return parsed.data;
+}
+
+export async function stopCloudJob(
+  jobId: string,
+  userId: string,
+  processing: boolean,
+): Promise<CloudJob> {
+  if (!z.uuid().safeParse(jobId).success)
+    throw new Error("Некорректное задание.");
+  const sdk = await account(userId);
+  const { data, error } = await sdk.rpc("stop_recognition_job", {
+    p_id: jobId,
+    p_processing: processing,
+  });
+  if (error)
+    throw new Error(
+      "Не удалось остановить задание. Проверьте подключение и применение миграции очереди 202610280002.",
+    );
+  const parsed = z.array(cloudJobSchema).length(1).safeParse(data);
+  if (
+    !parsed.success ||
+    parsed.data[0].id !== jobId ||
+    parsed.data[0].user_id !== userId ||
+    parsed.data[0].status !== "failed"
+  )
+    throw new Error(
+      "Состояние задания изменилось или обработка длится меньше 15 минут. Обновите список; повтор автоматически не запускается.",
+    );
+  return parsed.data[0];
 }
 export async function readCloudJobs(
   jobIds: string[],

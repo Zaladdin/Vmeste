@@ -116,6 +116,8 @@ export type StoredDocument = {
   blob: Blob;
   fingerprint?: string;
   eventIds?: string[];
+  /** Names explicitly confirmed from this document, including mapped aliases. */
+  people?: { name: string; memberId: string }[];
   recognition?: {
     status:
       | "queued"
@@ -153,12 +155,21 @@ export function instantOf(local: string, timeZone: string): number {
 }
 export function eventsForDay(events: TripEvent[], day: string): TripEvent[] {
   return events
-    .filter((event) => event.date === day)
-    .sort(
-      (a, b) =>
-        instantOf(`${a.date}T${a.time}`, a.timeZone) -
-        instantOf(`${b.date}T${b.time}`, b.timeZone),
-    );
+    .filter((event) => event.date === day || isArrivalOnDay(event, day))
+    .sort((a, b) => eventDayInstant(a, day) - eventDayInstant(b, day));
+}
+export function isArrivalOnDay(event: TripEvent, day: string): boolean {
+  return (
+    (event.kind === "flight" || event.kind === "transport") &&
+    event.date !== day &&
+    event.endLocal?.slice(0, 10) === day &&
+    !!event.endTimeZone
+  );
+}
+function eventDayInstant(event: TripEvent, day: string): number {
+  return isArrivalOnDay(event, day)
+    ? instantOf(event.endLocal!, event.endTimeZone!)
+    : instantOf(`${event.date}T${event.time}`, event.timeZone);
 }
 export function daysOfTrip(start: string, end: string): string[] {
   const first = Temporal.PlainDate.from(start);

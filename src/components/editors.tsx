@@ -156,6 +156,7 @@ export function EventEditor({
   trip,
   date,
   item,
+  initialKind,
   onSave,
   onDelete,
   onClose,
@@ -163,6 +164,7 @@ export function EventEditor({
   trip: Trip;
   date: string;
   item?: TripEvent;
+  initialKind?: TripEvent["kind"];
   onSave: (event: TripEvent) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onClose: () => void;
@@ -220,7 +222,10 @@ export function EventEditor({
       <form onSubmit={submit} className="editor">
         <div className="form-grid">
           <Field label="Тип события">
-            <select name="kind" defaultValue={item?.kind ?? "activity"}>
+            <select
+              name="kind"
+              defaultValue={item?.kind ?? initialKind ?? "activity"}
+            >
               {Object.entries(eventKinds).map(([key, label]) => (
                 <option key={key} value={key}>
                   {label}

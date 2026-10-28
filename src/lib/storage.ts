@@ -1,6 +1,11 @@
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 import { RECOGNITION_RETRY_DELAY_MS } from "./recognition-common";
 import {
+  documentPeople,
+  documentPeopleError,
+  normalizePersonName,
+} from "./document-people";
+import {
   parseTrip,
   sampleTrip,
   validateDocument,
@@ -74,13 +79,200 @@ export async function initializeTrips(): Promise<Trip[]> {
 export async function saveTrip(trip: Trip): Promise<void> {
   const validated = parseTrip(trip);
   const db = await database();
-  const transaction = db.transaction("trips", "readwrite");
-  await Promise.all([transaction.store.put(validated), transaction.done]);
+  const transaction = db.transaction(["trips", "documents"], "readwrite");
+  void transaction.done.catch(() => undefined);
+  try {
+    const memberIds = new Set(validated.members.map((member) => member.id));
+    const documents = transaction.objectStore("documents");
+    await transaction.objectStore("trips").put(validated);
+    for (const document of await documents.index("by-trip").getAll(trip.id)) {
+      if (!document.people) continue;
+      const people = document.people.filter((person) =>
+        memberIds.has(person.memberId),
+      );
+      if (people.length !== document.people.length)
+        await documents.put({ ...document, people });
+    }
+    await transaction.done;
+  } catch (error) {
+    try {
+      transaction.abort();
+    } catch {
+      /* Already aborted. */
+    }
+    await transaction.done.catch(() => undefined);
+    throw error;
+  }
+}
+
+export type DocumentPeopleSelection = {
+  documentId: string;
+  names: { name: string; memberId?: string }[];
+};
+
+function confirmedName(raw: string): string {
+  if (typeof raw !== "string") throw new Error("Проверьте имя участника.");
+  const value = raw.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  const line = `Участники: ${value}`;
+  const parsed = documentPeople(line);
+  if (documentPeopleError(line) || parsed.length !== 1 || parsed[0] !== value)
+    throw new Error(
+      "Проверьте имя участника: нужны имя и фамилия без номеров и контактов.",
+    );
+  return value;
+}
+
+/** Confirm people independently of scheduling or paid document recognition. */
+export async function confirmDocumentPeople(
+  tripId: string,
+  selections: DocumentPeopleSelection[],
+): Promise<Trip> {
+  if (!Array.isArray(selections) || selections.length > 1000)
+    throw new Error("Слишком много документов.");
+  const db = await database();
+  const tx = db.transaction(["trips", "documents"], "readwrite");
+  void tx.done.catch(() => undefined);
+  try {
+    const source = await tx.objectStore("trips").get(tripId);
+    if (!source) throw new Error("Поездка не найдена.");
+    const trip = parseTrip(source);
+    const members = [...trip.members];
+    const memberIds = new Set(members.map((member) => member.id));
+    const known = new Map(
+      members.map((member) => [normalizePersonName(member.name), member.id]),
+    );
+    const documentStore = tx.objectStore("documents");
+    const documents = new Map(
+      (await documentStore.index("by-trip").getAll(tripId)).map((doc) => [
+        doc.id,
+        doc,
+      ]),
+    );
+    for (const doc of documents.values()) {
+      for (const person of doc.people ?? []) {
+        if (
+          memberIds.has(person.memberId) &&
+          !known.has(normalizePersonName(person.name))
+        )
+          known.set(normalizePersonName(person.name), person.memberId);
+      }
+    }
+    const changed = new Set<string>();
+    const events = trip.events.map((event) => ({
+      ...event,
+      memberIds: [...event.memberIds],
+    }));
+    for (const selection of selections) {
+      const doc = documents.get(selection.documentId);
+      if (!doc)
+        throw new Error("Документ удалён или относится к другой поездке.");
+      if (!Array.isArray(selection.names) || selection.names.length > 50)
+        throw new Error("В документе можно подтвердить до 50 участников.");
+      const people = new Map(
+        (doc.people ?? [])
+          .filter((person) => memberIds.has(person.memberId))
+          .map((person) => [normalizePersonName(person.name), person]),
+      );
+      for (const requested of selection.names) {
+        const name = confirmedName(requested.name);
+        const key = normalizePersonName(name);
+        const match = known.get(key);
+        let memberId = requested.memberId ?? match;
+        if (
+          requested.memberId !== undefined &&
+          !memberIds.has(requested.memberId)
+        )
+          throw new Error("Участник для сопоставления не найден.");
+        if (requested.memberId && match && match !== requested.memberId)
+          throw new Error("Это имя уже связано с другим участником.");
+        if (!memberId) {
+          if (members.length >= 50)
+            throw new Error(
+              "В одной поездке можно сохранить до 50 участников.",
+            );
+          memberId = crypto.randomUUID();
+          members.push({ id: memberId, name });
+          memberIds.add(memberId);
+        }
+        known.set(key, memberId);
+        people.set(key, people.get(key) ?? { name, memberId });
+        if (people.size > 50)
+          throw new Error("В документе можно подтвердить до 50 участников.");
+        for (const event of events) {
+          if (
+            (doc.eventId === event.id || doc.eventIds?.includes(event.id)) &&
+            !event.memberIds.includes(memberId)
+          )
+            event.memberIds.push(memberId);
+        }
+      }
+      const updated = { ...doc, people: [...people.values()] };
+      validateStoredDocument(updated);
+      documents.set(doc.id, updated);
+      changed.add(doc.id);
+    }
+    const updated = parseTrip({ ...trip, members, events });
+    for (const id of changed) await documentStore.put(documents.get(id)!);
+    await tx.objectStore("trips").put(updated);
+    await tx.done;
+    return updated;
+  } catch (error) {
+    try {
+      tx.abort();
+    } catch {
+      /* Already aborted. */
+    }
+    await tx.done.catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function loadTrips(): Promise<Trip[]> {
   const db = await database();
   return db.getAll("trips");
+}
+
+/** One consistent snapshot, including concurrent writes from other tabs. */
+export async function tripSnapshot(id: string) {
+  const db = await database();
+  const tx = db.transaction(["trips", "documents"], "readonly");
+  const [trip, documents] = await Promise.all([
+    tx.objectStore("trips").get(id),
+    tx.objectStore("documents").index("by-trip").getAll(id),
+  ]);
+  await tx.done;
+  if (!trip) throw new Error("Поездка не найдена.");
+  return { trip, documents };
+}
+
+/** Restore only a new copy; an invalid attachment cannot leave a partial trip. */
+export async function restoreTripCopy(trip: Trip, documents: StoredDocument[]) {
+  const validated = parseTrip(trip);
+  if (new Set(documents.map((doc) => doc.id)).size !== documents.length)
+    throw new Error("Повторяющиеся документы.");
+  for (const doc of documents) {
+    validateStoredDocument(doc);
+    if (doc.tripId !== trip.id) throw new Error("Документ другой поездки.");
+    assertDocumentLinks(validated, doc);
+  }
+  const db = await database();
+  const tx = db.transaction(["trips", "documents"], "readwrite");
+  void tx.done.catch(() => undefined);
+  try {
+    await tx.objectStore("trips").add(validated);
+    await Promise.all(
+      documents.map((doc) => tx.objectStore("documents").add(doc)),
+    );
+    await tx.done;
+  } catch (error) {
+    try {
+      tx.abort();
+    } catch {
+      /* Already aborted. */
+    }
+    await tx.done.catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function removeTrip(id: string): Promise<void> {
@@ -112,6 +304,22 @@ function validateStoredDocument(document: StoredDocument): void {
   ) {
     throw new Error("Некорректные ссылки на события документа.");
   }
+  if (document.people) {
+    if (!Array.isArray(document.people) || document.people.length > 50)
+      throw new Error("Некорректные участники документа.");
+    const names = new Set<string>();
+    for (const person of document.people) {
+      const name = confirmedName(person.name);
+      if (
+        typeof person.memberId !== "string" ||
+        !person.memberId ||
+        person.memberId.length > 100 ||
+        names.has(normalizePersonName(name))
+      )
+        throw new Error("Некорректные участники документа.");
+      names.add(normalizePersonName(name));
+    }
+  }
 }
 
 function assertDocumentLinks(
@@ -122,6 +330,10 @@ function assertDocumentLinks(
     !trip ||
     [document.eventId, ...(document.eventIds ?? [])].some(
       (id) => id && !trip.events.some((event) => event.id === id),
+    ) ||
+    document.people?.some(
+      (person) =>
+        !trip?.members.some((member) => member.id === person.memberId),
     )
   ) {
     throw new Error("Поездка или событие для документа не найдены.");

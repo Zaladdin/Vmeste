@@ -57,6 +57,45 @@ beforeEach(() => {
   });
 });
 describe("private cloud queue client", () => {
+  it("expires worker availability rather than promising an offline computer is ready", async () => {
+    const { workerIsFresh } = await import("./cloud-client");
+    const now = Date.now();
+    const status = {
+      user_id: userId,
+      state: "available" as const,
+      remaining: 3,
+      daily_limit: 10,
+      observed_at: new Date(now).toISOString(),
+    };
+    expect(workerIsFresh(status, now + 89_000)).toBe(true);
+    expect(workerIsFresh(status, now + 91_000)).toBe(false);
+    expect(workerIsFresh(status, now - 60_000)).toBe(false);
+  });
+  it("stops only an authenticated owner's terminal job and rejects races", async () => {
+    const { stopCloudJob } = await import("./cloud-client");
+    const stopped = {
+      ...job,
+      status: "failed",
+      error: "Задание отменено до начала обработки.",
+    };
+    mocks.rpc.mockResolvedValue({ data: [stopped], error: null });
+    expect(await stopCloudJob(jobId, userId, false)).toEqual(stopped);
+    expect(mocks.rpc).toHaveBeenCalledWith("stop_recognition_job", {
+      p_id: jobId,
+      p_processing: false,
+    });
+    mocks.rpc.mockResolvedValue({ data: [], error: null });
+    await expect(stopCloudJob(jobId, userId, true)).rejects.toThrow(/15 минут/);
+    mocks.rpc.mockResolvedValue({
+      data: [{ ...stopped, user_id: crypto.randomUUID() }],
+      error: null,
+    });
+    await expect(stopCloudJob(jobId, userId, true)).rejects.toThrow();
+    mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+    mocks.rpc.mockClear();
+    await expect(stopCloudJob(jobId, userId, false)).rejects.toThrow(/аккаунт/);
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
   it("recovers a lost upload reply only when the existing object's bytes match", async () => {
     const { fileFingerprint } = await import("./recognition-client");
     const blob = new Blob(["pdf"]);

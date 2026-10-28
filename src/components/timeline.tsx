@@ -13,6 +13,7 @@ import {
 import {
   eventKinds,
   eventsForDay,
+  isArrivalOnDay,
   formatDate,
   mapLink,
   linkedEventIds,
@@ -83,19 +84,21 @@ export function Timeline({
       ) : (
         <div className="event-list">
           {events.map((item) => {
+            const arrival = isArrivalOnDay(item, date);
+            const local = arrival
+              ? item.endLocal!
+              : `${item.date}T${item.time}`;
+            const zone = arrival ? item.endTimeZone! : item.timeZone;
             const Icon = kindIcons[item.kind];
             const docs = documents.filter((d) =>
               linkedEventIds(d).includes(item.id),
             );
             return (
               <article className={`event-row event-${item.kind}`} key={item.id}>
-                <time
-                  className="event-time"
-                  dateTime={`${item.date}T${item.time}`}
-                >
-                  {item.time}
-                  <span title={item.timeZone}>
-                    {item.timeZone.split("/").pop()?.replaceAll("_", " ")}
+                <time className="event-time" dateTime={local}>
+                  {local.slice(11)}
+                  <span title={zone}>
+                    {zone.split("/").pop()?.replaceAll("_", " ")}
                   </span>
                 </time>
                 <span className="timeline-dot" />
@@ -108,6 +111,9 @@ export function Timeline({
                       className="event-title"
                       onClick={() => onEdit(item)}
                     >
+                      {arrival
+                        ? `${item.kind === "flight" ? "Прилёт" : "Прибытие"}: `
+                        : ""}
                       {item.title}
                     </button>
                     <button
@@ -133,7 +139,12 @@ export function Timeline({
                   {item.details ? (
                     <p className="event-details">{item.details}</p>
                   ) : null}
-                  {item.endLocal ? (
+                  {arrival ? (
+                    <div className="event-end">
+                      Отправление: {formatDate(item.date)}, {item.time} ·{" "}
+                      {item.timeZone.split("/").pop()?.replaceAll("_", " ")}
+                    </div>
+                  ) : item.endLocal ? (
                     <div className="event-end">
                       {item.kind === "flight"
                         ? "Прилёт"

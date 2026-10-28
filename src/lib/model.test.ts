@@ -12,6 +12,49 @@ import {
 } from "./model";
 
 describe("trip data", () => {
+  it("shows overnight arrivals with the same event identity and sorts by arrival instant", () => {
+    const flight = {
+      ...sampleTrip.events[0],
+      kind: "flight" as const,
+      date: "2027-05-10",
+      time: "23:00",
+      timeZone: "Europe/Istanbul",
+      endLocal: "2027-05-11T03:00",
+      endTimeZone: "Asia/Baku",
+    };
+    const morning = {
+      ...flight,
+      id: "morning",
+      date: "2027-05-11",
+      time: "04:00",
+      endLocal: undefined,
+      endTimeZone: undefined,
+    };
+    expect(eventsForDay([morning, flight], "2027-05-11")).toEqual([
+      flight,
+      morning,
+    ]);
+    expect(eventsForDay([flight], "2027-05-10")).toEqual([flight]);
+    expect(eventsForDay([flight], "2027-05-12")).toEqual([]);
+    expect(eventsForDay([{ ...flight, kind: "stay" }], "2027-05-11")).toEqual(
+      [],
+    );
+  });
+  it("includes a date-line arrival on the previous local calendar day only once", () => {
+    const flight = {
+      ...sampleTrip.events[0],
+      kind: "flight" as const,
+      date: "2027-05-11",
+      time: "00:30",
+      timeZone: "Asia/Tokyo",
+      endLocal: "2027-05-10T18:00",
+      endTimeZone: "America/Los_Angeles",
+    };
+    expect(eventsForDay([flight], "2027-05-10")).toEqual([flight]);
+    expect(
+      eventsForDay([{ ...flight, endLocal: "2027-05-11T18:00" }], "2027-05-11"),
+    ).toHaveLength(1);
+  });
   it("orders the same travel day by real instant across different timezones", () => {
     const early = {
       ...sampleTrip.events[0],

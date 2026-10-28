@@ -34,6 +34,7 @@ const calls: {
   input: string;
 }[] = [];
 const children: { kill: ReturnType<typeof vi.fn> }[] = [];
+const pendingOutputWrites: Promise<void>[] = [];
 
 beforeEach(async () => {
   reserveMock.mockReset().mockResolvedValue(undefined);
@@ -57,6 +58,7 @@ beforeEach(async () => {
   ];
   calls.length = 0;
   children.length = 0;
+  pendingOutputWrites.length = 0;
   spawnMock
     .mockReset()
     .mockImplementation(
@@ -93,15 +95,19 @@ beforeEach(async () => {
                 child.stdout.emit("data", Buffer.from(scenario.stdout));
               if (scenario.stderr)
                 child.stderr.emit("data", Buffer.from(scenario.stderr));
+              if (child.killed) return;
               const outputIndex = args.indexOf("--output-last-message");
               if (
                 outputIndex >= 0 &&
                 (scenario.result !== undefined || scenario.raw !== undefined)
-              )
-                await writeFile(
+              ) {
+                const writing = writeFile(
                   args[outputIndex + 1],
                   scenario.raw ?? JSON.stringify(scenario.result),
                 );
+                pendingOutputWrites.push(writing);
+                await writing;
+              }
               child.emit("close", scenario.code ?? 0, null);
             });
           },
@@ -111,6 +117,8 @@ beforeEach(async () => {
     );
 });
 afterEach(async () => {
+  // A cancelled mock process may still have an output write in flight.
+  await Promise.all(pendingOutputWrites);
   vi.useRealTimers();
   vi.unstubAllEnvs();
   if (

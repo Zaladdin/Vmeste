@@ -57,11 +57,12 @@ describe("persistent daily recognition limit", () => {
       Array.from({ length: 8 }, (_, i) => (i % 2 ? first : second).reserve()),
     );
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(2);
-    expect(
-      results
-        .filter((r) => r.status === "rejected")
-        .map((r) => r.reason.status),
-    ).toEqual(Array(6).fill(429));
+    // Contention may fail closed with 503 before quota exhaustion yields 429.
+    const failures = results.filter((r) => r.status === "rejected");
+    expect(failures).toHaveLength(6);
+    expect(failures.every((r) => [429, 503].includes(r.reason.status))).toBe(
+      true,
+    );
     expect(await first.get()).toMatchObject({ used: 2, remaining: 0 });
   });
   it("keeps attempts when lowering/raising the limit and supports pausing", async () => {

@@ -279,6 +279,14 @@ export async function beginRecognition(
     if (!document) throw new Error("Документ не найден на этом устройстве.");
     const now = Date.now();
     if (
+      document.recognition?.status === "queued" ||
+      (document.recognition?.cloudJobId &&
+        document.recognition.status === "processing")
+    )
+      throw new Error(
+        "Документ уже в очереди распознавания. Дождитесь результата.",
+      );
+    if (
       document.recognition?.status === "processing" &&
       document.recognition.startedAt &&
       now - document.recognition.startedAt < RECOGNITION_RETRY_DELAY_MS
@@ -293,6 +301,8 @@ export async function beginRecognition(
         message: "Распознаём билеты и бронирования…",
         attemptId,
         startedAt: now,
+        cloudJobId: undefined,
+        cloudUserId: undefined,
       },
     };
     await transaction.store.put(updated);
@@ -309,11 +319,94 @@ export async function beginRecognition(
   }
 }
 
+/** Bind before upload/enqueue so a lost HTTP response cannot orphan a queued job. */
+export async function queueCloudRecognition(
+  id: string,
+  attemptId: string,
+  jobId: string,
+  userId: string,
+): Promise<void> {
+  const db = await database();
+  const tx = db.transaction("documents", "readwrite");
+  void tx.done.catch(() => undefined);
+  try {
+    const document = await tx.store.get(id);
+    if (
+      !document ||
+      document.recognition?.attemptId !== attemptId ||
+      document.recognition.status !== "processing"
+    )
+      throw new Error("Попытка распознавания устарела.");
+    await tx.store.put({
+      ...document,
+      recognition: {
+        ...document.recognition,
+        status: "queued",
+        cloudJobId: jobId,
+        cloudUserId: userId,
+        message:
+          "Ожидает распознавания на компьютере. Компьютер должен быть включён.",
+      },
+    });
+    await tx.done;
+  } catch (error) {
+    try {
+      tx.abort();
+    } catch {}
+    await tx.done.catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function updateCloudRecognition(
+  id: string,
+  attemptId: string,
+  jobId: string,
+  status: "queued" | "processing" | "failed",
+  message?: string,
+): Promise<void> {
+  const db = await database();
+  const tx = db.transaction("documents", "readwrite");
+  void tx.done.catch(() => undefined);
+  try {
+    const document = await tx.store.get(id);
+    if (
+      document?.recognition?.attemptId === attemptId &&
+      document.recognition.cloudJobId === jobId &&
+      ["queued", "processing"].includes(document.recognition.status)
+    ) {
+      await tx.store.put({
+        ...document,
+        recognition: {
+          ...document.recognition,
+          status,
+          message: (
+            message ??
+            (status === "processing"
+              ? "Компьютер распознаёт документ…"
+              : status === "failed"
+                ? "Не удалось распознать документ. Можно повторить попытку."
+                : "Ожидает распознавания на компьютере.")
+          ).slice(0, 500),
+        },
+      });
+    }
+    await tx.done;
+  } catch (error) {
+    try {
+      tx.abort();
+    } catch {}
+    await tx.done.catch(() => undefined);
+    throw error;
+  }
+}
+
 export async function applyRecognition(
   id: string,
   attemptId: string,
   raw: RecognitionResult,
   options: ImportOptions = {},
+  expectedCloud?: { jobId: string; userId: string },
 ): Promise<{
   trip: Trip;
   document: StoredDocument;
@@ -335,6 +428,19 @@ export async function applyRecognition(
       );
     const trip = await transaction.objectStore("trips").get(document.tripId);
     if (!trip) throw new Error("Поездка была удалена. События не добавлены.");
+    if (expectedCloud) {
+      if (
+        document.recognition?.cloudJobId !== expectedCloud.jobId ||
+        document.recognition.cloudUserId !== expectedCloud.userId
+      )
+        throw new Error("Результат относится к другому облачному заданию.");
+      // The read/write transaction serializes browser tabs. Only a pending
+      // matching job may auto-import; terminal/manual state is never replayed.
+      if (!["queued", "processing"].includes(document.recognition.status)) {
+        await transaction.done;
+        return { trip, document, added: 0, duplicates: 0 };
+      }
+    }
     const plan = buildImportPlan(trip, result.events, options);
     const links = [
       ...new Set(

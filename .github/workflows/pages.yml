@@ -26,6 +26,8 @@ jobs:
       - run: npm run build:pages
         env:
           NEXT_PUBLIC_BASE_PATH: /Vmeste
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
       - uses: actions/upload-pages-artifact@v4
         with:
           path: out

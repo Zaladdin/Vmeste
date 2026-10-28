@@ -1958,3 +1958,61 @@ p {
     scroll-behavior: auto !important;
   }
 }
+.cloud-account {
+  border: 1px solid var(--line, #dce4df);
+  border-radius: 12px;
+  padding: 20px;
+  margin: 20px 0;
+  background: var(--surface, #f8faf7);
+}
+.cloud-account h3 {
+  margin: 0 0 10px;
+}
+.cloud-account p {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--muted, #65776d);
+}
+.cloud-account form,
+.cloud-account-signed-in {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.cloud-account label {
+  display: grid;
+  gap: 6px;
+  flex: 1 1 190px;
+  font-size: 13px;
+}
+.cloud-account input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line, #dce4df);
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+}
+.cloud-account-signed-in span {
+  overflow-wrap: anywhere;
+}
+.cloud-setup-note {
+  margin: 15px 0;
+  font-size: 13px;
+}
+.recognition-queued {
+  color: var(--muted, #65776d);
+}
+@media (max-width: 640px) {
+  .cloud-account {
+    padding: 16px;
+  }
+  .cloud-account form {
+    align-items: stretch;
+  }
+  .cloud-account label {
+    flex-basis: 100%;
+  }
+}

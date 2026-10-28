@@ -117,11 +117,19 @@ export type StoredDocument = {
   fingerprint?: string;
   eventIds?: string[];
   recognition?: {
-    status: "processing" | "completed" | "needs_review" | "failed" | "empty";
+    status:
+      | "queued"
+      | "processing"
+      | "completed"
+      | "needs_review"
+      | "failed"
+      | "empty";
     message: string;
     result?: RecognitionResult;
     attemptId?: string;
     startedAt?: number;
+    cloudJobId?: string;
+    cloudUserId?: string;
   };
 };
 export function linkedEventIds(document: StoredDocument): string[] {

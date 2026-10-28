@@ -24,12 +24,31 @@ import {
   beginRecognition,
   applyRecognition,
   failRecognition,
+  queueCloudRecognition,
+  updateCloudRecognition,
 } from "@/lib/storage";
 import { fileFingerprint, recognizeFile } from "@/lib/recognition-client";
-import { type BookingDraft, type ImportOptions } from "@/lib/recognition";
+import {
+  recognitionResponseSchema,
+  type BookingDraft,
+  type ImportOptions,
+} from "@/lib/recognition";
 import { RecognitionReview } from "./recognition-review";
 import { RecognitionBudget, useRecognitionBudget } from "./recognition-budget";
 import { STATIC_HOSTING } from "@/lib/deployment";
+import { CloudAccount, useCloudAccount } from "./cloud-account";
+import {
+  CLOUD_CONFIGURED,
+  enqueueCloudDocument,
+  readCloudJobs,
+  cloudFailureMessage,
+} from "@/lib/cloud-client";
+function cloudPending(document: StoredDocument) {
+  return Boolean(
+    document.recognition?.cloudJobId &&
+    ["queued", "processing"].includes(document.recognition.status),
+  );
+}
 export function Documents({
   trip,
   documents,
@@ -52,12 +71,148 @@ export function Documents({
   const [busy, setBusy] = useState(false);
   const [link, setLink] = useState(eventId ?? "");
   const [confirm, setConfirm] = useState<string | null>(null);
-  const [autoRecognize, setAutoRecognize] = useState(!STATIC_HOSTING);
+  const [autoRecognize, setAutoRecognize] = useState(
+    !STATIC_HOSTING || CLOUD_CONFIGURED,
+  );
   const [phase, setPhase] = useState("");
   const [notice, setNotice] = useState("");
   const [review, setReview] = useState<StoredDocument | null>(null);
   const operation = useRef(false);
   const budget = useRecognitionBudget();
+  const cloud = useCloudAccount();
+  const cloudUserId = cloud.session?.user.id;
+  const cloudEnabled = Boolean(cloudUserId);
+  const recognitionAvailable = !STATIC_HOSTING || cloudEnabled;
+  const [cloudError, setCloudError] = useState("");
+  const callbacks = useRef({ onRefresh, onImported, onProcessing });
+  useEffect(() => {
+    callbacks.current = { onRefresh, onImported, onProcessing };
+  });
+  const pendingKey = documents
+    .filter(
+      (doc) =>
+        doc.recognition?.cloudJobId &&
+        doc.recognition.cloudUserId === cloudUserId &&
+        ["queued", "processing"].includes(doc.recognition.status),
+    )
+    .map(
+      (doc) =>
+        `${doc.id}:${doc.recognition?.cloudJobId}:${doc.recognition?.status}`,
+    )
+    .join("|");
+  useEffect(() => {
+    if (!cloudUserId || !pendingKey) return;
+    let active = true,
+      polling = false;
+    async function poll() {
+      if (polling || !navigator.onLine) return;
+      polling = true;
+      try {
+        const pending = documents.filter(
+          (doc) =>
+            doc.recognition?.cloudJobId &&
+            doc.recognition.cloudUserId === cloudUserId &&
+            ["queued", "processing"].includes(doc.recognition.status),
+        );
+        for (let offset = 0; offset < pending.length; offset += 100) {
+          const batch = pending.slice(offset, offset + 100);
+          const jobs = await readCloudJobs(
+            batch.map((doc) => doc.recognition!.cloudJobId!),
+            cloudUserId!,
+          );
+          if (!active) return;
+          setCloudError("");
+          for (const job of jobs) {
+            if (!active || operation.current) break;
+            const doc = await getDocument(job.document_id);
+            if (!active) return;
+            const recognition = doc?.recognition;
+            if (
+              !doc ||
+              !recognition ||
+              recognition.cloudUserId !== cloudUserId ||
+              recognition.cloudJobId !== job.id ||
+              recognition.attemptId !== job.attempt_id ||
+              doc.tripId !== job.trip_id ||
+              !["queued", "processing"].includes(recognition.status)
+            )
+              continue;
+            if (job.status === "completed") {
+              operation.current = true;
+              setBusy(true);
+              callbacks.current.onProcessing(true);
+              try {
+                const parsed = recognitionResponseSchema.safeParse(job.result);
+                if (!parsed.success) {
+                  await updateCloudRecognition(
+                    doc.id,
+                    job.attempt_id,
+                    job.id,
+                    "failed",
+                    "Не удалось проверить результат. Документ сохранён; повторите распознавание.",
+                  );
+                } else {
+                  const applied = await applyRecognition(
+                    doc.id,
+                    job.attempt_id,
+                    parsed.data,
+                    {},
+                    { jobId: job.id, userId: cloudUserId! },
+                  );
+                  if (active) {
+                    callbacks.current.onImported(applied.trip);
+                    setNotice(applied.document.recognition?.message ?? "");
+                    if (applied.document.recognition?.status === "needs_review")
+                      setReview(applied.document);
+                  }
+                }
+                if (active) await callbacks.current.onRefresh();
+              } finally {
+                operation.current = false;
+                setBusy(false);
+                callbacks.current.onProcessing(false);
+              }
+            } else if (job.status === "failed") {
+              const failure = cloudFailureMessage(job.error);
+              await updateCloudRecognition(
+                doc.id,
+                job.attempt_id,
+                job.id,
+                "failed",
+                failure,
+              );
+              if (active) await callbacks.current.onRefresh();
+            } else if (recognition.status !== job.status) {
+              await updateCloudRecognition(
+                doc.id,
+                job.attempt_id,
+                job.id,
+                job.status,
+              );
+              if (active) await callbacks.current.onRefresh();
+            }
+          }
+        }
+      } catch {
+        if (active)
+          setCloudError(
+            "Не удалось обновить очередь. Задание сохранено; проверка продолжится при подключении.",
+          );
+      } finally {
+        polling = false;
+      }
+    }
+    void poll();
+    const timer = setInterval(() => void poll(), 5000);
+    const online = () => void poll();
+    window.addEventListener("online", online);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      window.removeEventListener("online", online);
+    };
+    // Bindings are persisted. Restart polling when the current account or queue changes.
+  }, [cloudUserId, pendingKey]);
   const [provider, setProvider] = useState<"codex" | "openai" | null>(null);
   useEffect(() => {
     if (STATIC_HOSTING || !navigator.onLine) return;
@@ -109,11 +264,21 @@ export function Documents({
         setNotice("Этот документ уже загружен. Повторные события не созданы.");
         if (saved.document.recognition?.status === "needs_review")
           setReview(saved.document);
-      } else if (autoRecognize && budget.status?.remaining === 0) {
+      } else if (
+        saved.document.recognition?.cloudJobId &&
+        ["queued", "processing"].includes(saved.document.recognition.status)
+      ) {
+        setNotice("Этот документ уже в очереди. Новое задание не создано.");
+      } else if (
+        autoRecognize &&
+        !cloudEnabled &&
+        budget.status?.remaining === 0
+      ) {
         setNotice(
           "Документ сохранён. Дневной лимит распознавания исчерпан или приостановлен; распознать можно позже.",
         );
-      } else if (autoRecognize) await processRecognition(saved.document.id);
+      } else if (autoRecognize && recognitionAvailable)
+        await processRecognition(saved.document.id);
       else
         setNotice(
           saved.duplicate
@@ -132,6 +297,37 @@ export function Documents({
     }
   }
   async function processRecognition(id: string) {
+    if (cloudUserId) {
+      setPhase("Отправляем документ в закрытую очередь…");
+      const started = await beginRecognition(id);
+      const jobId = crypto.randomUUID();
+      await queueCloudRecognition(id, started.attemptId, jobId, cloudUserId);
+      await onRefresh();
+      try {
+        await enqueueCloudDocument(
+          started.document,
+          started.attemptId,
+          jobId,
+          cloudUserId,
+        );
+        setNotice(
+          "Документ в очереди. Когда компьютер обработает его, события появятся в плане.",
+        );
+      } catch {
+        await updateCloudRecognition(
+          id,
+          started.attemptId,
+          jobId,
+          "queued",
+          "Отправка в очередь не подтверждена. Нажмите «Повторить отправку».",
+        );
+        await onRefresh();
+        setNotice(
+          "Документ сохранён. Отправка в очередь не подтверждена — нажмите «Повторить отправку» у документа. Новая платная попытка не создаётся.",
+        );
+      }
+      return;
+    }
     if (STATIC_HOSTING)
       throw new Error(
         "Автоматическое распознавание доступно в локальной версии приложения.",
@@ -163,6 +359,41 @@ export function Documents({
     } finally {
       await budget.refresh();
       onProcessing(false);
+    }
+  }
+  async function resendCloud(id: string) {
+    if (operation.current || !cloudUserId) return;
+    operation.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const document = await getDocument(id);
+      const recognition = document?.recognition;
+      if (
+        !document ||
+        !recognition?.cloudJobId ||
+        !recognition.attemptId ||
+        recognition.cloudUserId !== cloudUserId ||
+        recognition.status !== "queued"
+      )
+        throw new Error("Задание уже изменилось. Обновите список документов.");
+      await enqueueCloudDocument(
+        document,
+        recognition.attemptId,
+        recognition.cloudJobId,
+        cloudUserId,
+      );
+      setNotice(
+        "Отправка подтверждена. Документ ожидает обработки на компьютере.",
+      );
+      await onRefresh();
+    } catch {
+      setError(
+        "Не удалось подтвердить отправку. Проверьте вход, сеть и настройки облака; документ сохранён.",
+      );
+    } finally {
+      operation.current = false;
+      setBusy(false);
     }
   }
   async function retry(id: string) {
@@ -254,15 +485,18 @@ export function Documents({
           <p className="muted">Билеты и бронирования всегда рядом с планом.</p>
         </div>
       </div>
+      <CloudAccount account={cloud} disabled={busy} />
       {STATIC_HOSTING ? (
         <p className="recognition-notice">
           План и документы хранятся в браузере этого устройства. Добавляйте
-          события вручную. Автоматическое распознавание доступно в локальной
-          версии приложения.
+          события вручную
+          {cloudEnabled
+            ? " или отправляйте документы в очередь распознавания."
+            : ". Для облачного распознавания войдите в аккаунт после подключения облака."}
         </p>
-      ) : (
+      ) : !cloudEnabled ? (
         <RecognitionBudget budget={budget} disabled={busy} />
-      )}
+      ) : null}
       <div
         className="upload-area"
         onDragOver={(e) => e.preventDefault()}
@@ -276,7 +510,7 @@ export function Documents({
         </span>
         <h3>Добавьте билет или бронь отеля</h3>
         <p>PDF, JPG, PNG или WebP · до 20 МБ</p>
-        {!STATIC_HOSTING ? (
+        {recognitionAvailable ? (
           <label className="recognition-check">
             <input
               type="checkbox"
@@ -318,13 +552,15 @@ export function Documents({
           onChange={(e) => void upload(e.target.files?.[0])}
         />
         <small>
-          {STATIC_HOSTING
-            ? "Файл сохраняется только в этом браузере. Синхронизации с другими устройствами пока нет."
-            : provider === "codex"
-              ? "Распознавание через твой аккаунт Codex: расходуются его лимиты и кредиты. Требуется интернет. Файл сохраняется в этом браузере."
-              : provider === "openai"
-                ? "Файл сохранится в этом браузере. Для распознавания документ отправляется в OpenAI API; требуется интернет и баланс API."
-                : "Файл сохранится в этом браузере. Для распознавания документ передаётся выбранному AI-сервису; нужен интернет."}
+          {cloudEnabled
+            ? "При автоматическом распознавании копия файла передаётся в закрытое облачное хранилище. Обработчик на компьютере использует лимиты и кредиты Codex. План остаётся на этом устройстве."
+            : STATIC_HOSTING
+              ? "Файл сохраняется только в этом браузере. Синхронизации с другими устройствами пока нет."
+              : provider === "codex"
+                ? "Распознавание через твой аккаунт Codex: расходуются его лимиты и кредиты. Требуется интернет. Файл сохраняется в этом браузере."
+                : provider === "openai"
+                  ? "Файл сохранится в этом браузере. Для распознавания документ отправляется в OpenAI API; требуется интернет и баланс API."
+                  : "Файл сохранится в этом браузере. Для распознавания документ передаётся выбранному AI-сервису; нужен интернет."}
         </small>
       </div>
       {busy && phase ? (
@@ -345,6 +581,11 @@ export function Documents({
       {error ? (
         <p role="alert" className="form-error">
           {error}
+        </p>
+      ) : null}
+      {cloudError ? (
+        <p role="status" className="muted">
+          {cloudError}
         </p>
       ) : null}
       <div className="documents-list">
@@ -418,13 +659,26 @@ export function Documents({
                     <Check size={15} />В плане
                   </button>
                 ) : null}
-                {!STATIC_HOSTING &&
+                {doc.recognition?.status === "queued" &&
+                doc.recognition.cloudUserId === cloudUserId ? (
+                  <button
+                    className="button secondary"
+                    disabled={busy}
+                    onClick={() => void resendCloud(doc.id)}
+                  >
+                    Повторить отправку
+                  </button>
+                ) : null}
+                {recognitionAvailable &&
+                !cloudPending(doc) &&
                 doc.recognition?.status !== "completed" &&
                 doc.recognition?.status !== "needs_review" ? (
                   <button
                     className="button secondary"
                     onClick={() => void retry(doc.id)}
-                    disabled={busy || budget.status?.remaining === 0}
+                    disabled={
+                      busy || (!cloudEnabled && budget.status?.remaining === 0)
+                    }
                   >
                     <ScanLine size={15} />
                     {doc.recognition?.status === "processing"
@@ -445,7 +699,12 @@ export function Documents({
                 className="icon-button"
                 onClick={() => setConfirm(doc.id)}
                 aria-label={`Удалить ${doc.name}`}
-                disabled={busy}
+                disabled={busy || cloudPending(doc)}
+                title={
+                  cloudPending(doc)
+                    ? "Дождитесь завершения задания в очереди."
+                    : undefined
+                }
               >
                 <Trash2 size={17} />
               </button>

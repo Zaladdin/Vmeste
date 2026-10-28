@@ -16,6 +16,8 @@ import {
   saveTrip,
   saveUploadedDocument,
   listDocuments,
+  queueCloudRecognition,
+  updateCloudRecognition,
 } from "./storage";
 
 const flight: BookingDraft = {
@@ -49,6 +51,116 @@ async function setup(fingerprint = "a".repeat(64)) {
   return { trip, document };
 }
 describe("recognition repository", () => {
+  it("ignores a late cloud completion after another tab imported and manually edited the event", async () => {
+    const { document } = await setup();
+    const { attemptId } = await beginRecognition(document.id);
+    const jobId = crypto.randomUUID(),
+      userId = crypto.randomUUID();
+    await queueCloudRecognition(document.id, attemptId, jobId, userId);
+    const imported = await applyRecognition(
+      document.id,
+      attemptId,
+      result,
+      {},
+      { jobId, userId },
+    );
+    await saveTrip({
+      ...imported.trip,
+      events: imported.trip.events.map((event) => ({
+        ...event,
+        title: "Мой исправленный перелёт",
+      })),
+    });
+    const late = await applyRecognition(
+      document.id,
+      attemptId,
+      result,
+      {},
+      { jobId, userId },
+    );
+    expect(late.added).toBe(0);
+    expect(late.trip.events).toHaveLength(1);
+    expect(late.trip.events[0].title).toBe("Мой исправленный перелёт");
+  });
+  it("does not restore a deleted event from a late cloud response but still permits explicit manual restoration", async () => {
+    const { document } = await setup();
+    const { attemptId } = await beginRecognition(document.id);
+    const jobId = crypto.randomUUID(),
+      userId = crypto.randomUUID();
+    await queueCloudRecognition(document.id, attemptId, jobId, userId);
+    const imported = await applyRecognition(
+      document.id,
+      attemptId,
+      result,
+      {},
+      { jobId, userId },
+    );
+    await removeEvent(imported.trip, imported.trip.events[0].id);
+    const late = await applyRecognition(
+      document.id,
+      attemptId,
+      result,
+      {},
+      { jobId, userId },
+    );
+    expect(late.added).toBe(0);
+    expect(late.trip.events).toEqual([]);
+    expect(late.document.recognition?.status).toBe("needs_review");
+    expect(
+      (
+        await applyRecognition(document.id, attemptId, result, {
+          reviewed: true,
+        })
+      ).added,
+    ).toBe(1);
+  });
+  it("persists a cloud queue binding and blocks duplicate attempts after reload", async () => {
+    const { document } = await setup();
+    const { attemptId } = await beginRecognition(document.id);
+    const jobId = crypto.randomUUID(),
+      userId = crypto.randomUUID();
+    await queueCloudRecognition(document.id, attemptId, jobId, userId);
+    expect((await getDocument(document.id))?.recognition).toMatchObject({
+      status: "queued",
+      cloudJobId: jobId,
+      cloudUserId: userId,
+      attemptId,
+    });
+    await expect(beginRecognition(document.id)).rejects.toThrow(/очереди/);
+    await updateCloudRecognition(document.id, attemptId, jobId, "processing");
+    await expect(beginRecognition(document.id)).rejects.toThrow(/очереди/);
+    await updateCloudRecognition(document.id, attemptId, jobId, "failed");
+    expect(
+      (await beginRecognition(document.id)).document.recognition?.cloudJobId,
+    ).toBeUndefined();
+  });
+  it("does not apply a stale cloud state to a newer request", async () => {
+    const { document } = await setup();
+    const { attemptId } = await beginRecognition(document.id);
+    const jobId = crypto.randomUUID();
+    await queueCloudRecognition(
+      document.id,
+      attemptId,
+      jobId,
+      crypto.randomUUID(),
+    );
+    await updateCloudRecognition(
+      document.id,
+      attemptId,
+      crypto.randomUUID(),
+      "failed",
+    );
+    expect((await getDocument(document.id))?.recognition?.status).toBe(
+      "queued",
+    );
+    await updateCloudRecognition(document.id, attemptId, jobId, "failed");
+    const next = await beginRecognition(document.id);
+    expect(next.attemptId).not.toBe(attemptId);
+    await updateCloudRecognition(document.id, attemptId, jobId, "processing");
+    expect((await getDocument(document.id))?.recognition?.attemptId).toBe(
+      next.attemptId,
+    );
+  });
   it("persists CLI token usage with the original recognition result", async () => {
     const { document } = await setup();
     const { attemptId } = await beginRecognition(document.id);

@@ -9,7 +9,7 @@ import {
   type Trip,
 } from "./model";
 import { recognitionResponseSchema } from "./recognition";
-import { restoreTripCopy, tripSnapshot } from "./storage";
+import type { AccountStorage } from "./storage";
 
 export const MAX_BACKUP_BYTES = 128 * 1024 * 1024;
 const attachmentSchema = z
@@ -55,8 +55,11 @@ function encode(bytes: Uint8Array) {
     binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
   return btoa(binary);
 }
-export async function createBackup(tripId: string): Promise<Blob> {
-  const snapshot = await tripSnapshot(tripId);
+export async function createBackup(
+  tripId: string,
+  storage: AccountStorage,
+): Promise<Blob> {
+  const snapshot = await storage.tripSnapshot(tripId);
   if (
     snapshot.documents.reduce((sum, doc) => sum + doc.size, 0) >
     90 * 1024 * 1024
@@ -95,7 +98,10 @@ export async function createBackup(tripId: string): Promise<Blob> {
     throw new Error("Копия должна быть не больше 128 МБ.");
   return blob;
 }
-export async function restoreBackup(file: Blob): Promise<Trip> {
+export async function restoreBackup(
+  file: Blob,
+  storage: AccountStorage,
+): Promise<Trip> {
   if (file.size > MAX_BACKUP_BYTES)
     throw new Error("Копия должна быть не больше 128 МБ.");
   const parsed = backupSchema.safeParse(JSON.parse(await file.text()));
@@ -159,6 +165,6 @@ export async function restoreBackup(file: Blob): Promise<Trip> {
         : {}),
     });
   }
-  await restoreTripCopy(trip, documents);
+  await storage.restoreTripCopy(trip, documents);
   return trip;
 }

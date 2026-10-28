@@ -1,14 +1,15 @@
 import "fake-indexeddb/auto";
 import { afterEach, describe, expect, it } from "vitest";
 import { sampleTrip, type StoredDocument } from "./model";
-import {
+import { createAccountStorage } from "./storage";
+const {
   confirmDocumentPeople,
   listDocuments,
   loadTrips,
   removeTrip,
   saveDocument,
   saveTrip,
-} from "./storage";
+} = createAccountStorage("33333333-3333-4333-8333-333333333333");
 
 afterEach(async () => {
   for (const trip of await loadTrips()) await removeTrip(trip.id);

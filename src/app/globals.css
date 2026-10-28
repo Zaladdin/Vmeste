@@ -2527,3 +2527,20 @@ select:focus-visible {
   min-height: 46px;
   font-size: 16px;
 }
+.account-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 8px 0 18px;
+  font-size: 13px;
+}
+.account-toolbar > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+.account-toolbar > button {
+  flex-shrink: 0;
+}

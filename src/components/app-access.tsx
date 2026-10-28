@@ -1,15 +1,19 @@
 "use client";
 
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Luggage } from "lucide-react";
 import { confirmAppUser } from "@/lib/app-access";
 import { CloudAccount, useCloudAccount } from "./cloud-account";
+import { AccountStorageProvider } from "./account-storage";
 
 export function AppAccess({ children }: { children: ReactNode }) {
   const account = useCloudAccount();
   const token = account.session?.access_token;
   const userId = account.session?.user.id;
-  const [verified, setVerified] = useState<string | null>(null);
+  const [verified, setVerified] = useState<{
+    token: string;
+    userId: string;
+  } | null>(null);
   const [failure, setFailure] = useState("");
   const [retry, setRetry] = useState(0);
   useEffect(() => {
@@ -19,7 +23,7 @@ export function AppAccess({ children }: { children: ReactNode }) {
     if (token && userId)
       void confirmAppUser(token, userId).then(
         () => {
-          if (active) setVerified(token);
+          if (active) setVerified({ token, userId });
         },
         () => {
           if (active)
@@ -33,8 +37,18 @@ export function AppAccess({ children }: { children: ReactNode }) {
     };
   }, [token, userId, retry]);
 
-  if (!account.loading && token && userId && verified === token)
-    return <Fragment key={userId}>{children}</Fragment>;
+  if (
+    !account.loading &&
+    token &&
+    userId &&
+    verified?.token === token &&
+    verified.userId === userId
+  )
+    return (
+      <AccountStorageProvider key={userId} userId={userId}>
+        {children}
+      </AccountStorageProvider>
+    );
 
   const checking = account.loading || Boolean(token && !failure);
   return (

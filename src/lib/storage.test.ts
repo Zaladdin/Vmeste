@@ -1,6 +1,7 @@
 import "fake-indexeddb/auto";
 import { afterEach, describe, it, expect, vi } from "vitest";
-import {
+import { createAccountStorage } from "./storage";
+const {
   saveTrip,
   loadTrips,
   removeTrip,
@@ -10,7 +11,7 @@ import {
   removeDocument,
   removeEvent,
   initializeTrips,
-} from "./storage";
+} = createAccountStorage("11111111-1111-4111-8111-111111111111");
 import { sampleTrip } from "./model";
 
 describe("local repository", () => {
@@ -45,10 +46,9 @@ describe("local repository", () => {
     expect(await listDocuments(trip.id)).toEqual([]);
   });
 
-  it("does not recreate the example after the last trip is deleted", async () => {
-    expect((await initializeTrips()).map((trip) => trip.id)).toEqual([
-      sampleTrip.id,
-    ]);
+  it("starts with an empty account and does not recreate deleted trips", async () => {
+    expect(await initializeTrips()).toEqual([]);
+    await saveTrip(sampleTrip);
     await removeTrip(sampleTrip.id);
     expect(await initializeTrips()).toEqual([]);
   });

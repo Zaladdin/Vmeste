@@ -3,7 +3,8 @@ import { RECOGNITION_RETRY_DELAY_MS } from "./recognition-common";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sampleTrip, type StoredDocument } from "./model";
 import { type BookingDraft } from "./recognition";
-import {
+import { createAccountStorage } from "./storage";
+const {
   applyRecognition,
   beginRecognition,
   failRecognition,
@@ -18,7 +19,7 @@ import {
   listDocuments,
   queueCloudRecognition,
   updateCloudRecognition,
-} from "./storage";
+} = createAccountStorage("22222222-2222-4222-8222-222222222222");
 
 const flight: BookingDraft = {
   kind: "flight",

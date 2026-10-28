@@ -1,14 +1,16 @@
 import "fake-indexeddb/auto";
 import { afterEach, describe, expect, it } from "vitest";
-import { createBackup, restoreBackup } from "./backup";
-import { sampleTrip } from "./model";
 import {
-  saveTrip,
-  saveDocument,
-  loadTrips,
-  listDocuments,
-  removeTrip,
-} from "./storage";
+  createBackup as createScopedBackup,
+  restoreBackup as restoreScopedBackup,
+} from "./backup";
+import { sampleTrip } from "./model";
+import { createAccountStorage } from "./storage";
+const storage = createAccountStorage("44444444-4444-4444-8444-444444444444");
+const { saveTrip, saveDocument, loadTrips, listDocuments, removeTrip } =
+  storage;
+const createBackup = (tripId: string) => createScopedBackup(tripId, storage);
+const restoreBackup = (file: Blob) => restoreScopedBackup(file, storage);
 afterEach(async () => {
   for (const trip of await loadTrips()) await removeTrip(trip.id);
 });

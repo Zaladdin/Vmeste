@@ -30,14 +30,7 @@ import {
   type TripEvent,
   type StoredDocument,
 } from "@/lib/model";
-import {
-  initializeTrips,
-  loadTrips,
-  saveTrip,
-  removeTrip,
-  listDocuments,
-  removeEvent,
-} from "@/lib/storage";
+import { useAccountStorage } from "./account-storage";
 import { TripEditor, EventEditor, MembersEditor } from "./editors";
 import { Dialog } from "./dialog";
 import { Timeline, Places } from "./timeline";
@@ -46,6 +39,7 @@ import { Tickets, Accommodation, People } from "./trip-sections";
 import { publicPath } from "@/lib/deployment";
 import { createBackup, restoreBackup } from "@/lib/backup";
 import { AppAccess } from "./app-access";
+import { CloudAccount, useCloudAccount } from "./cloud-account";
 
 type Tab = "plan" | "tickets" | "stays" | "people" | "documents" | "places";
 type Editor =
@@ -69,6 +63,16 @@ export function TravelApp() {
 }
 
 function TravelWorkspace() {
+  const account = useCloudAccount();
+  const storage = useAccountStorage();
+  const {
+    initializeTrips,
+    loadTrips,
+    saveTrip,
+    removeTrip,
+    listDocuments,
+    removeEvent,
+  } = storage;
   const [trips, setTrips] = useState<Trip[]>([]);
   const [activeId, setActiveId] = useState("");
   const [tab, setTab] = useState<Tab>("plan");
@@ -321,7 +325,7 @@ function TravelWorkspace() {
     mutation.current = true;
     setBusy(true);
     try {
-      const blob = await createBackup(trip.id);
+      const blob = await createBackup(trip.id, storage);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -341,7 +345,7 @@ function TravelWorkspace() {
     mutation.current = true;
     setBusy(true);
     try {
-      const restored = await restoreBackup(file);
+      const restored = await restoreBackup(file, storage);
       setTrips((current) => [...current, restored]);
       selectTrip(restored);
       setToast("Поездка и документы восстановлены отдельной копией.");
@@ -515,6 +519,7 @@ function TravelWorkspace() {
             <Plus size={22} />
           </button>
         </div>
+        <CloudAccount account={account} disabled={busy} compact />
         <div className="breadcrumb">
           <span>Мои поездки</span>
           <ChevronRight size={14} />

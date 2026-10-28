@@ -17,16 +17,7 @@ import {
   formatDate,
   linkedEventIds,
 } from "@/lib/model";
-import {
-  getDocument,
-  removeDocument,
-  saveUploadedDocument,
-  beginRecognition,
-  applyRecognition,
-  failRecognition,
-  queueCloudRecognition,
-  updateCloudRecognition,
-} from "@/lib/storage";
+import { useAccountStorage } from "./account-storage";
 import { fileFingerprint, recognizeFile } from "@/lib/recognition-client";
 import {
   recognitionResponseSchema,
@@ -68,6 +59,16 @@ export function Documents({
   onProcessing: (processing: boolean) => void;
   onPlan: (eventId?: string) => void;
 }) {
+  const {
+    getDocument,
+    removeDocument,
+    saveUploadedDocument,
+    beginRecognition,
+    applyRecognition,
+    failRecognition,
+    queueCloudRecognition,
+    updateCloudRecognition,
+  } = useAccountStorage();
   const input = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);

@@ -50,10 +50,12 @@ export function CloudAccount({
   account,
   disabled,
   purpose = "recognition",
+  compact = false,
 }: {
   account: ReturnType<typeof useCloudAccount>;
   disabled: boolean;
   purpose?: "app" | "recognition";
+  compact?: boolean;
 }) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
@@ -128,6 +130,24 @@ export function CloudAccount({
       setBusy(false);
     }
   }
+  if (compact)
+    return (
+      <section className="account-toolbar" aria-label="Ваш аккаунт">
+        <span>{account.session?.user.email ?? "Ваш аккаунт"}</span>
+        <button
+          className="button secondary"
+          disabled={disabled || busy || !account.session}
+          onClick={() => void signOut()}
+        >
+          Выйти
+        </button>
+        {error ? (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </section>
+    );
   if (!account.configured)
     return (
       <p className="muted cloud-setup-note">
@@ -148,7 +168,7 @@ export function CloudAccount({
       )}
       <p id={help}>
         {purpose === "app" ? (
-          "Используйте свою электронную почту и пароль. Поездки и документы сохраняются в браузере этого устройства."
+          "Используйте свою электронную почту и пароль. Поездки и документы сохраняются отдельно для вашего аккаунта в браузере этого устройства."
         ) : (
           <>
             Войдите в один аккаунт здесь и в обработчике. Загруженный для

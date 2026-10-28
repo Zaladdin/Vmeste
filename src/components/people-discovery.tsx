@@ -9,7 +9,7 @@ import {
   existingDiscoveryMember,
   type DiscoveredPerson,
 } from "@/lib/people-discovery";
-import { confirmDocumentPeople } from "@/lib/storage";
+import { useAccountStorage } from "./account-storage";
 import type { Trip, StoredDocument } from "@/lib/model";
 
 export function PeopleDiscovery({
@@ -21,6 +21,7 @@ export function PeopleDiscovery({
   documents: StoredDocument[];
   onApplied: (trip: Trip) => Promise<void>;
 }) {
+  const { confirmDocumentPeople } = useAccountStorage();
   const [groups, setGroups] = useState<DiscoveredPerson[]>([]);
   const [choices, setChoices] = useState<Record<string, string>>({});
   const [excluded, setExcluded] = useState<Set<string>>(new Set());

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -8,6 +8,7 @@ beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "vmeste-budget-test-"));
 });
 afterEach(async () => {
+  vi.unstubAllEnvs();
   if (
     path.dirname(root) === tmpdir() &&
     path.basename(root).startsWith("vmeste-budget-test-")
@@ -15,6 +16,31 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
 });
 describe("persistent daily recognition limit", () => {
+  it("can disable the daily cap without resetting usage and restore it later", async () => {
+    const store = createRecognitionBudgetStore(root);
+    await store.setLimit(1);
+    await store.reserve();
+    await expect(store.reserve()).rejects.toMatchObject({ status: 429 });
+    vi.stubEnv("VMESTE_RECOGNITION_UNLIMITED", "1");
+    expect(await store.reserve()).toMatchObject({
+      unlimited: true,
+      limit: null,
+      remaining: null,
+      used: 2,
+    });
+    expect(await createRecognitionBudgetStore(root).get()).toMatchObject({
+      used: 2,
+      unlimited: true,
+    });
+    vi.stubEnv("VMESTE_RECOGNITION_UNLIMITED", "0");
+    expect(await store.get()).toMatchObject({
+      unlimited: false,
+      used: 2,
+      limit: 1,
+      remaining: 0,
+    });
+    await expect(store.reserve()).rejects.toMatchObject({ status: 429 });
+  });
   it("reports a stuck lock and preserves usage during manual recovery", async () => {
     const store = createRecognitionBudgetStore(root);
     await store.reserve();

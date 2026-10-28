@@ -63,7 +63,12 @@ export function CloudWorkerStatus({ userId }: { userId: string }) {
           {!fresh ? " · данные устарели или не подтверждены" : ""}.
           {fresh && status.remaining !== null && status.daily_limit !== null
             ? ` Осталось попыток: ${status.remaining} из ${status.daily_limit}.`
-            : ""}
+            : fresh &&
+                status.state === "available" &&
+                status.remaining === null &&
+                status.daily_limit === null
+              ? " Дневной лимит отключён."
+              : ""}
         </p>
       ) : null}
       {error ? <p>{error}</p> : null}

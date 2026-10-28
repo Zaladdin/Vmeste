@@ -156,7 +156,10 @@ async function main() {
         if (configuration?.provider !== "codex") throw new Error();
         serverAvailable = true;
         ready =
-          Number.isInteger(allowance?.remaining) && allowance.remaining > 0;
+          (allowance?.unlimited === true &&
+            allowance.remaining === null &&
+            allowance.limit === null) ||
+          (Number.isInteger(allowance?.remaining) && allowance.remaining > 0);
       } catch {
         if (previous !== "server")
           console.log(

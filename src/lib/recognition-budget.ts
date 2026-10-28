@@ -116,13 +116,15 @@ export function createRecognitionBudgetStore(
     return state;
   }
   function status(state: State) {
+    const unlimited = process.env.VMESTE_RECOGNITION_UNLIMITED === "1";
     const reset = new Date(`${state.day}T00:00:00.000Z`);
     reset.setUTCDate(reset.getUTCDate() + 1);
     return {
       day: state.day,
-      limit: state.limit,
+      limit: unlimited ? null : state.limit,
+      unlimited,
       used: state.used,
-      remaining: Math.max(0, state.limit - state.used),
+      remaining: unlimited ? null : Math.max(0, state.limit - state.used),
       resetAt: reset.toISOString(),
       estimate: { model: "gpt-6.1-sol", credits: 0.65 },
     };
@@ -140,7 +142,7 @@ export function createRecognitionBudgetStore(
     reserve: () =>
       locked(async () => {
         const state = await load();
-        if (state.used >= state.limit)
+        if (!status(state).unlimited && state.used >= state.limit)
           throw new RecognitionError(
             "Дневной лимит распознавания исчерпан или распознавание приостановлено. Документ сохранён; попробуйте после сброса лимита или измените его в настройках.",
             429,

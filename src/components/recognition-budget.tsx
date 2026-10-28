@@ -6,9 +6,10 @@ import { STATIC_HOSTING } from "@/lib/deployment";
 
 const budgetSchema = z.object({
   day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  limit: z.number().int().min(0).max(100),
+  limit: z.number().int().min(0).max(100).nullable(),
+  unlimited: z.boolean().optional(),
   used: z.number().int().nonnegative(),
-  remaining: z.number().int().min(0).max(100),
+  remaining: z.number().int().min(0).max(100).nullable(),
   resetAt: z.string().datetime(),
   estimate: z.object({
     model: z.string().min(1).max(100),
@@ -157,7 +158,9 @@ export function RecognitionBudget({
         <strong>Дневной лимит распознавания</strong>
         <p aria-live="polite">
           {status
-            ? `Сегодня использовано: ${status.used} из ${status.limit}. Осталось попыток: ${status.remaining}.`
+            ? status.unlimited
+              ? `Дневной лимит отключён. Сегодня использовано попыток: ${status.used}.`
+              : `Сегодня использовано: ${status.used} из ${status.limit}. Осталось попыток: ${status.remaining}.`
             : budget.loading
               ? "Проверяем дневной лимит…"
               : "Лимит проверяется сервером перед каждым распознаванием."}
@@ -182,42 +185,44 @@ export function RecognitionBudget({
           попыток, а не жёсткий предел кредитов.
         </p>
       </div>
-      <div className="recognition-budget-controls">
-        <label>
-          Попыток в день
-          <input
-            type="number"
-            inputMode="numeric"
-            min={0}
-            max={100}
-            step={1}
-            value={value}
-            onChange={(event) => {
-              setDraft(event.target.value);
-              setValidation("");
-            }}
-            disabled={disabled || budget.loading || budget.saving || !status}
-            aria-describedby={helpId}
-          />
-        </label>
-        <button
-          className="button secondary"
-          onClick={() => void save()}
-          disabled={
-            disabled ||
-            budget.loading ||
-            budget.saving ||
-            !status ||
-            value === String(status.limit)
-          }
-        >
-          {budget.saving ? "Сохраняем…" : "Сохранить лимит"}
-        </button>
-        <small id={helpId}>
-          0 — остановить распознавание. Лимит общий для всех поездок на этом
-          сервере.
-        </small>
-      </div>
+      {!status?.unlimited ? (
+        <div className="recognition-budget-controls">
+          <label>
+            Попыток в день
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={100}
+              step={1}
+              value={value}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setValidation("");
+              }}
+              disabled={disabled || budget.loading || budget.saving || !status}
+              aria-describedby={helpId}
+            />
+          </label>
+          <button
+            className="button secondary"
+            onClick={() => void save()}
+            disabled={
+              disabled ||
+              budget.loading ||
+              budget.saving ||
+              !status ||
+              value === String(status.limit)
+            }
+          >
+            {budget.saving ? "Сохраняем…" : "Сохранить лимит"}
+          </button>
+          <small id={helpId}>
+            0 — остановить распознавание. Лимит общий для всех поездок на этом
+            сервере.
+          </small>
+        </div>
+      ) : null}
       {validation || budget.error ? (
         <p className="form-error" role="alert">
           {validation || budget.error}

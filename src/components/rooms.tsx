@@ -21,6 +21,7 @@ import {
 } from "@/lib/room-client";
 import { Dialog } from "./dialog";
 import { CopyValue } from "./copy-value";
+import { RoomConfirmation } from "./room-confirmation";
 import "./rooms.css";
 
 export function RoomsHub({
@@ -44,6 +45,12 @@ export function RoomsHub({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [retry, setRetry] = useState(0);
+  const [confirmation, setConfirmation] = useState<
+    | { kind: "delete"; roomId: string }
+    | { kind: "remove"; roomId: string; userId: string }
+    | null
+  >(null);
+  const confirmationTrigger = useRef<HTMLButtonElement | null>(null);
   const alive = useRef(false);
   const operation = useRef(0);
   const roomId = room?.id;
@@ -154,11 +161,13 @@ export function RoomsHub({
     }
   }
   function showRoom(value: TripRoom) {
+    setConfirmation(null);
     setRoom(value);
     setLinks({});
     setInvite("");
   }
   function closeRoom() {
+    setConfirmation(null);
     operation.current++;
     setRoom(null);
     setLinks({});
@@ -166,6 +175,10 @@ export function RoomsHub({
     setBusy(false);
   }
   const owner = room?.owner_id === userId;
+  function cancelConfirmation() {
+    setConfirmation(null);
+    confirmationTrigger.current?.focus();
+  }
 
   return (
     <details
@@ -507,24 +520,44 @@ export function RoomsHub({
                   </strong>
                   <CopyValue label="ID аккаунта" value={member.user_id} />
                   {owner && member.user_id !== userId ? (
-                    <button
-                      className="text-button"
-                      disabled={busy}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            "Удалить участника из комнаты? Его привязка будет снята, а прежний код приглашения перестанет действовать.",
-                          )
-                        )
-                          void run(
-                            () =>
-                              removeRoomMember(userId, room.id, member.user_id),
-                            showRoom,
-                          );
-                      }}
-                    >
-                      Удалить из комнаты
-                    </button>
+                    <>
+                      <button
+                        className="text-button"
+                        disabled={busy}
+                        onClick={(event) => {
+                          confirmationTrigger.current = event.currentTarget;
+                          setConfirmation({
+                            kind: "remove",
+                            roomId: room.id,
+                            userId: member.user_id,
+                          });
+                        }}
+                      >
+                        Удалить из комнаты
+                      </button>
+                      {confirmation?.kind === "remove" &&
+                      confirmation.roomId === room.id &&
+                      confirmation.userId === member.user_id ? (
+                        <RoomConfirmation
+                          title="Удалить участника из комнаты?"
+                          description="Его привязка будет снята, а прежний код приглашения перестанет действовать."
+                          confirmLabel="Да, удалить участника"
+                          busy={busy}
+                          onCancel={cancelConfirmation}
+                          onConfirm={() =>
+                            void run(
+                              () =>
+                                removeRoomMember(
+                                  userId,
+                                  room.id,
+                                  member.user_id,
+                                ),
+                              showRoom,
+                            )
+                          }
+                        />
+                      ) : null}
+                    </>
                   ) : null}
                 </div>
               ))}
@@ -579,26 +612,39 @@ export function RoomsHub({
               личными.
             </p>
             {owner ? (
-              <button
-                className="button danger-quiet"
-                disabled={busy}
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      "Удалить комнату для всех участников? Личная поездка и документы сохранятся.",
-                    )
-                  )
-                    void run(
-                      () => deleteRoom(userId, room.id),
-                      () => {
-                        closeRoom();
-                        setNotice("Комната удалена. Личная поездка сохранена.");
-                      },
-                    );
-                }}
-              >
-                Удалить комнату
-              </button>
+              <>
+                <button
+                  className="button danger-quiet"
+                  disabled={busy}
+                  onClick={(event) => {
+                    confirmationTrigger.current = event.currentTarget;
+                    setConfirmation({ kind: "delete", roomId: room.id });
+                  }}
+                >
+                  Удалить комнату
+                </button>
+                {confirmation?.kind === "delete" &&
+                confirmation.roomId === room.id ? (
+                  <RoomConfirmation
+                    title="Удалить комнату для всех участников?"
+                    description="Личная поездка и документы сохранятся. Доступ участников к общей комнате будет закрыт."
+                    confirmLabel="Да, удалить комнату"
+                    busy={busy}
+                    onCancel={cancelConfirmation}
+                    onConfirm={() =>
+                      void run(
+                        () => deleteRoom(userId, room.id),
+                        () => {
+                          closeRoom();
+                          setNotice(
+                            "Комната удалена. Личная поездка сохранена.",
+                          );
+                        },
+                      )
+                    }
+                  />
+                ) : null}
+              </>
             ) : null}
           </div>
         </Dialog>

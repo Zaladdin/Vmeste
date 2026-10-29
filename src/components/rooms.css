@@ -172,3 +172,15 @@
     width: 100%;
   }
 }
+.room-confirmation {
+  padding: 16px;
+  margin: 12px 0;
+  border: 1px solid #e6bcb2;
+  border-radius: 10px;
+  background: #fff7f4;
+}
+.room-confirmation > p {
+  margin: 10px 0;
+  font-size: 14px;
+  line-height: 1.6;
+}

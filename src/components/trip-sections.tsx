@@ -20,10 +20,11 @@ import {
   type Trip,
   type TripEvent,
 } from "@/lib/model";
-import { documentPeople, normalizePersonName } from "@/lib/document-people";
+import { documentPeople, matchingPersonIds } from "@/lib/document-people";
 import "./trip-sections.css";
 import { PeopleDiscovery } from "./people-discovery";
 import { CopyValue } from "./copy-value";
+import { PeopleDuplicates } from "./people-duplicates";
 
 type SectionProps = {
   trip: Trip;
@@ -416,6 +417,7 @@ export function People({
         action="Управлять участниками"
         onAdd={onEditMembers}
       />
+      <PeopleDuplicates trip={trip} onApplied={onPeopleApplied} />
       <PeopleDiscovery
         trip={trip}
         documents={documents}
@@ -441,11 +443,14 @@ export function People({
                   (source) => source.memberId === person.id,
                 ) ||
                 document.recognition?.result?.events.some((event) =>
-                  documentPeople(event.details).some(
-                    (name) =>
-                      normalizePersonName(name) ===
-                      normalizePersonName(person.name),
-                  ),
+                  documentPeople(event.details).some((name) => {
+                    const ids = matchingPersonIds(
+                      name,
+                      trip.members,
+                      document.people ?? [],
+                    );
+                    return ids.length === 1 && ids[0] === person.id;
+                  }),
                 ),
             );
             return (

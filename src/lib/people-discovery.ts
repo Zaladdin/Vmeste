@@ -1,4 +1,8 @@
-import { normalizePersonName } from "./document-people";
+import {
+  normalizePersonName,
+  personNameOrderKey,
+  matchingPersonIds,
+} from "./document-people";
 export type DiscoveredPerson = {
   key: string;
   name: string;
@@ -6,7 +10,7 @@ export type DiscoveredPerson = {
   documentIds: string[];
 };
 function orderKey(name: string): string {
-  return normalizePersonName(name).split(" ").sort().join(" ");
+  return personNameOrderKey(name);
 }
 export function remainingDocumentPeople(
   names: string[],
@@ -20,22 +24,10 @@ export function existingDiscoveryMember(
   members: { id: string; name: string }[],
   documents: { people?: { name: string; memberId: string }[] }[],
 ): string | undefined {
-  const ids = new Set(members.map((member) => member.id));
+  const aliases = documents.flatMap((document) => document.people ?? []);
   const matches = new Set(
-    members
-      .filter((member) =>
-        group.variants.some(
-          (name) =>
-            normalizePersonName(name) === normalizePersonName(member.name),
-        ),
-      )
-      .map((member) => member.id),
+    group.variants.flatMap((name) => matchingPersonIds(name, members, aliases)),
   );
-  for (const document of documents)
-    for (const alias of document.people ?? []) {
-      if (ids.has(alias.memberId) && orderKey(alias.name) === group.key)
-        matches.add(alias.memberId);
-    }
   return matches.size === 1 ? [...matches][0] : undefined;
 }
 

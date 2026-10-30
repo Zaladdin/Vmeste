@@ -21,6 +21,50 @@ export const flight: BookingDraft = {
   reviewReason: null,
 };
 describe("recognition import plan", () => {
+  it("keeps a confirmed self alias when a new document reverses the printed name", () => {
+    const trip = {
+      ...sampleTrip,
+      members: [{ id: "self", name: "Я" }],
+      events: [],
+    };
+    const plan = buildImportPlan(
+      trip,
+      [{ ...flight, details: "Участники: IVANOVA ANNA" }],
+      {},
+      [{ name: "Anna Ivanova", memberId: "self" }],
+    );
+    expect(plan.trip.members).toEqual(trip.members);
+    expect(plan.trip.events[0].memberIds).toEqual(["self"]);
+  });
+  it("reuses an existing participant ID when a later ticket reverses full name order", () => {
+    const trip = {
+      ...sampleTrip,
+      members: [{ id: "kept-id", name: "Anna Ivanova" }],
+      events: [],
+    };
+    const plan = buildImportPlan(trip, [
+      { ...flight, details: "Участники: IVANOVA ANNA; Anna Ivanova" },
+    ]);
+    expect(plan.needsReview).toBe(false);
+    expect(plan.trip.members).toEqual(trip.members);
+    expect(plan.trip.events[0].memberIds).toEqual(["kept-id"]);
+  });
+  it("does not pick an arbitrary ID when existing name order duplicates are ambiguous", () => {
+    const trip = {
+      ...sampleTrip,
+      members: [
+        { id: "one", name: "Anna Ivanova" },
+        { id: "two", name: "Ivanova Anna" },
+      ],
+      events: [],
+    };
+    const plan = buildImportPlan(trip, [
+      { ...flight, details: "Участники: ANNA IVANOVA" },
+    ]);
+    expect(plan.needsReview).toBe(true);
+    expect(plan.added).toBe(0);
+    expect(plan.trip.members).toEqual(trip.members);
+  });
   it("adds named document travelers to the trip and the corresponding events", () => {
     const trip = { ...sampleTrip, members: [], events: [] };
     const result = buildImportPlan(trip, [

@@ -700,3 +700,14 @@
     font-size: 12px;
   }
 }
+.people-duplicates .discovered-person {
+  grid-template-columns: minmax(0, 1fr);
+  overflow-wrap: anywhere;
+}
+.people-duplicates .discovered-person > div {
+  min-width: 0;
+}
+.people-duplicates .discovered-member-select {
+  padding-left: 0;
+  margin: 12px 0;
+}

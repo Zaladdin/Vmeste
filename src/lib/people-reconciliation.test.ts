@@ -43,6 +43,46 @@ async function fixture() {
 }
 
 describe("confirm document people separately from scheduling", () => {
+  it("reuses a full-name participant when the document reverses name order", async () => {
+    const { trip, document } = await fixture();
+    const original = {
+      ...trip,
+      members: [{ id: "self", name: "Anna Ivanova" }],
+    };
+    await saveTrip(original);
+    const updated = await confirmDocumentPeople(trip.id, [
+      { documentId: document.id, names: [{ name: "IVANOVA ANNA" }] },
+    ]);
+    expect(updated.members).toEqual(original.members);
+    expect((await listDocuments(trip.id))[0].people).toEqual([
+      { name: "IVANOVA ANNA", memberId: "self" },
+    ]);
+  });
+  it("refuses ambiguous automatic matching and accepts an explicit matching participant", async () => {
+    const { trip, document } = await fixture();
+    const existing = {
+      ...trip,
+      members: [
+        { id: "self", name: "Anna Ivanova" },
+        { id: "duplicate", name: "IVANOVA ANNA" },
+      ],
+    };
+    await saveTrip(existing);
+    await expect(
+      confirmDocumentPeople(trip.id, [
+        { documentId: document.id, names: [{ name: "Ivanova Anna" }] },
+      ]),
+    ).rejects.toThrow();
+    expect((await listDocuments(trip.id))[0].people).toBeUndefined();
+    const updated = await confirmDocumentPeople(trip.id, [
+      {
+        documentId: document.id,
+        names: [{ name: "Ivanova Anna", memberId: "self" }],
+      },
+    ]);
+    expect(updated.members).toEqual(existing.members);
+    expect((await listDocuments(trip.id))[0].people?.[0].memberId).toBe("self");
+  });
   it("adds four people including an explicit self alias without changing recognition or event dates", async () => {
     const { trip, document } = await fixture();
     const updated = await confirmDocumentPeople(trip.id, [

@@ -5,6 +5,28 @@ import {
   existingDiscoveryMember,
 } from "./people-discovery";
 describe("people discovery confirmation groups", () => {
+  it("reuses a reverse-order existing member without a previously confirmed alias", () => {
+    const [group] = groupDiscoveredPeople([
+      { documentId: "a", names: ["IVANOVA ANNA"] },
+    ]);
+    expect(
+      existingDiscoveryMember(
+        group,
+        [{ id: "stable", name: "Anna Ivanova" }],
+        [],
+      ),
+    ).toBe("stable");
+    expect(
+      existingDiscoveryMember(
+        group,
+        [
+          { id: "one", name: "Anna Ivanova" },
+          { id: "two", name: "Ivanova Anna" },
+        ],
+        [],
+      ),
+    ).toBeUndefined();
+  });
   it("keeps unconfirmed names after a partial confirmation", () => {
     expect(
       remainingDocumentPeople(

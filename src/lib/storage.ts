@@ -4,6 +4,8 @@ import {
   documentPeople,
   documentPeopleError,
   normalizePersonName,
+  matchingPersonIds,
+  personNameOrderKey,
 } from "./document-people";
 import {
   parseTrip,
@@ -144,9 +146,6 @@ export function createAccountStorage(userId: string) {
       const trip = parseTrip(source);
       const members = [...trip.members];
       const memberIds = new Set(members.map((member) => member.id));
-      const known = new Map(
-        members.map((member) => [normalizePersonName(member.name), member.id]),
-      );
       const documentStore = tx.objectStore("documents");
       const documents = new Map(
         (await documentStore.index("by-trip").getAll(tripId)).map((doc) => [
@@ -154,15 +153,9 @@ export function createAccountStorage(userId: string) {
           doc,
         ]),
       );
-      for (const doc of documents.values()) {
-        for (const person of doc.people ?? []) {
-          if (
-            memberIds.has(person.memberId) &&
-            !known.has(normalizePersonName(person.name))
-          )
-            known.set(normalizePersonName(person.name), person.memberId);
-        }
-      }
+      const aliases = [...documents.values()]
+        .flatMap((doc) => doc.people ?? [])
+        .filter((person) => memberIds.has(person.memberId));
       const changed = new Set<string>();
       const events = trip.events.map((event) => ({
         ...event,
@@ -182,15 +175,31 @@ export function createAccountStorage(userId: string) {
         for (const requested of selection.names) {
           const name = confirmedName(requested.name);
           const key = normalizePersonName(name);
-          const match = known.get(key);
-          let memberId = requested.memberId ?? match;
+          const matches = matchingPersonIds(name, members, aliases);
+          if (!requested.memberId && matches.length > 1)
+            throw new Error(
+              "Найдены повторы участника. Выберите его явно или объедините повторы во вкладке «Люди».",
+            );
+          let memberId = requested.memberId ?? matches[0];
           if (
             requested.memberId !== undefined &&
             !memberIds.has(requested.memberId)
           )
             throw new Error("Участник для сопоставления не найден.");
-          if (requested.memberId && match && match !== requested.memberId)
+          if (
+            requested.memberId &&
+            matches.length &&
+            !matches.includes(requested.memberId)
+          )
             throw new Error("Это имя уже связано с другим участником.");
+          if (
+            memberId &&
+            people.has(key) &&
+            people.get(key)!.memberId !== memberId
+          )
+            throw new Error(
+              "Это имя в документе уже связано с другим участником. Сначала объедините повторы.",
+            );
           if (!memberId) {
             if (members.length >= 50)
               throw new Error(
@@ -200,7 +209,7 @@ export function createAccountStorage(userId: string) {
             members.push({ id: memberId, name });
             memberIds.add(memberId);
           }
-          known.set(key, memberId);
+          aliases.push({ name, memberId });
           people.set(key, people.get(key) ?? { name, memberId });
           if (people.size > 50)
             throw new Error("В документе можно подтвердить до 50 участников.");
@@ -227,6 +236,90 @@ export function createAccountStorage(userId: string) {
         tx.abort();
       } catch {
         /* Already aborted. */
+      }
+      await tx.done.catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /** Explicitly retain one identity; never infer or mutate cloud account bindings. */
+  async function mergePeople(
+    tripId: string,
+    keepId: string,
+    mergeIds: string[],
+  ): Promise<Trip> {
+    if (
+      !Array.isArray(mergeIds) ||
+      !mergeIds.length ||
+      mergeIds.length > 49 ||
+      new Set(mergeIds).size !== mergeIds.length ||
+      mergeIds.includes(keepId) ||
+      typeof keepId !== "string" ||
+      mergeIds.some((id) => typeof id !== "string")
+    )
+      throw new Error("Выберите разных участников для объединения.");
+    const db = await database();
+    const tx = db.transaction(["trips", "documents"], "readwrite");
+    void tx.done.catch(() => undefined);
+    try {
+      const stored = await tx.objectStore("trips").get(tripId);
+      if (!stored) throw new Error("Поездка не найдена.");
+      const trip = parseTrip(stored);
+      const survivor = trip.members.find((member) => member.id === keepId);
+      const removed = new Set(mergeIds);
+      const key = survivor && personNameOrderKey(survivor.name);
+      if (
+        !survivor ||
+        !key?.startsWith("full:") ||
+        mergeIds.some((id) => {
+          const member = trip.members.find((person) => person.id === id);
+          return !member || personNameOrderKey(member.name) !== key;
+        })
+      )
+        throw new Error(
+          "Список участников изменился или имена не совпадают. Проверьте повторы ещё раз.",
+        );
+      const updated = parseTrip({
+        ...trip,
+        members: trip.members.filter((member) => !removed.has(member.id)),
+        events: trip.events.map((event) => ({
+          ...event,
+          memberIds: [
+            ...new Set(
+              event.memberIds.map((id) => (removed.has(id) ? keepId : id)),
+            ),
+          ],
+        })),
+      });
+      const documents = tx.objectStore("documents");
+      for (const document of await documents.index("by-trip").getAll(tripId)) {
+        if (!document.people?.some((person) => removed.has(person.memberId)))
+          continue;
+        const aliases = new Map<string, { name: string; memberId: string }>();
+        for (const person of document.people) {
+          const nameKey = normalizePersonName(person.name);
+          const memberId = removed.has(person.memberId)
+            ? keepId
+            : person.memberId;
+          const existing = aliases.get(nameKey);
+          if (existing && existing.memberId !== memberId)
+            throw new Error(
+              "Имя в документе связано с разными участниками. Проверьте список.",
+            );
+          aliases.set(nameKey, existing ?? { ...person, memberId });
+        }
+        const changed = { ...document, people: [...aliases.values()] };
+        validateStoredDocument(changed);
+        await documents.put(changed);
+      }
+      await tx.objectStore("trips").put(updated);
+      await tx.done;
+      return updated;
+    } catch (error) {
+      try {
+        tx.abort();
+      } catch {
+        /* Already completed or aborted. */
       }
       await tx.done.catch(() => undefined);
       throw error;
@@ -660,7 +753,10 @@ export function createAccountStorage(userId: string) {
           return { trip, document, added: 0, duplicates: 0 };
         }
       }
-      const plan = buildImportPlan(trip, result.events, options);
+      const aliases = (
+        await documents.index("by-trip").getAll(trip.id)
+      ).flatMap((source) => source.people ?? []);
+      const plan = buildImportPlan(trip, result.events, options, aliases);
       const links = [
         ...new Set(
           [
@@ -746,6 +842,7 @@ export function createAccountStorage(userId: string) {
     initializeTrips,
     saveTrip,
     confirmDocumentPeople,
+    mergePeople,
     loadTrips,
     tripSnapshot,
     restoreTripCopy,

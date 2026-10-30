@@ -4,7 +4,7 @@ import { parsePartialDate } from "./review-date";
 import {
   documentPeople,
   documentPeopleError,
-  normalizePersonName,
+  matchingPersonIds,
 } from "./document-people";
 
 const nullableText = (max: number) => z.string().max(max).nullable();
@@ -74,6 +74,7 @@ export function buildImportPlan(
   trip: Trip,
   drafts: BookingDraft[],
   options: ImportOptions = {},
+  aliases: readonly { name: string; memberId: string }[] = [],
 ): ImportPlan {
   const empty = (reasons: string[]): ImportPlan => ({
     trip,
@@ -170,26 +171,27 @@ export function buildImportPlan(
     );
     const events = [...trip.events];
     const members = [...trip.members];
-    const knownMembers = new Map(
-      members.map((member) => [normalizePersonName(member.name), member.id]),
-    );
     const eventIds = new Set<string>();
     let added = 0,
       duplicates = 0;
     for (const candidate of candidates) {
       for (const name of documentPeople(candidate.details)) {
-        const normalized = normalizePersonName(name);
-        let memberId = knownMembers.get(normalized);
+        const matches = matchingPersonIds(name, members, aliases);
+        if (matches.length > 1)
+          throw new Error(
+            `Для имени «${name}» найдено несколько участников. Объедините повторы во вкладке «Люди» и повторите добавление событий.`,
+          );
+        let memberId = matches[0];
         if (!memberId) {
           if (members.length >= 50)
             throw new Error(
               "В одной поездке можно сохранить до 50 участников. Проверьте имена из документов.",
             );
           memberId = crypto.randomUUID();
-          knownMembers.set(normalized, memberId);
           members.push({ id: memberId, name });
         }
-        candidate.memberIds.push(memberId);
+        if (!candidate.memberIds.includes(memberId))
+          candidate.memberIds.push(memberId);
       }
       const key = identity(candidate);
       const match = known.get(key);

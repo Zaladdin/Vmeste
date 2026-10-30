@@ -3,9 +3,52 @@ import {
   documentPeople,
   documentPeopleError,
   normalizePersonName,
+  personNameOrderKey,
+  matchingPersonIds,
 } from "./document-people";
 
 describe("explicit people named in document notes", () => {
+  it("matches full name order variants while preserving exact spelling normalization", () => {
+    const members = [{ id: "same", name: "Anna Ivanova" }];
+    expect(matchingPersonIds(" IVANOVA   ANNA ", members)).toEqual(["same"]);
+    expect(matchingPersonIds("IVANOVA/ANNA", members)).toEqual(["same"]);
+    expect(personNameOrderKey("Иванова Анна Мария")).toBe(
+      personNameOrderKey("Анна Мария Иванова"),
+    );
+    expect(normalizePersonName("IVANOVA ANNA")).toBe("ivanova anna");
+  });
+  it("does not infer initials, missing words, transliteration or similar surnames", () => {
+    const members = [{ id: "same", name: "Anna Ivanova" }];
+    for (const name of [
+      "Anna",
+      "A. Ivanova",
+      "Anna Ivanoff",
+      "Анна Иванова",
+      "Anna Anna Ivanova",
+    ])
+      expect(matchingPersonIds(name, members)).toEqual([]);
+    expect(personNameOrderKey("A. Ivanova")).not.toBe(
+      personNameOrderKey("Ivanova A."),
+    );
+  });
+  it("retains all candidate IDs for ambiguous names and confirmed aliases", () => {
+    const members = [
+      { id: "one", name: "Anna Ivanova" },
+      { id: "two", name: "Ivanova Anna" },
+      { id: "self", name: "Я" },
+    ];
+    expect(matchingPersonIds("ANNA IVANOVA", members)).toEqual(["one", "two"]);
+    expect(
+      matchingPersonIds(
+        "IVANOVA ANNA",
+        [{ id: "self", name: "Я" }],
+        [
+          { name: "Anna Ivanova", memberId: "self" },
+          { name: "Anna Ivanova", memberId: "deleted" },
+        ],
+      ),
+    ).toEqual(["self"]);
+  });
   it("reads only the explicit participant marker and preserves printed names", () => {
     expect(
       documentPeople(
